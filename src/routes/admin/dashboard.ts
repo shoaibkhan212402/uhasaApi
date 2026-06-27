@@ -54,7 +54,7 @@ router.get('/stats', async (req, res) => {
       recentSql += ` WHERE r.created_by = ? OR r.email IN (SELECT email FROM users WHERE created_by = ?)`;
       recentParams.push(coordinatorId, coordinatorId);
     }
-    recentSql += ` ORDER BY r.created_at DESC LIMIT 10`;
+    recentSql += ` ORDER BY r.created_at DESC LIMIT 50`;
     const recentRegs = await query(recentSql, recentParams);
 
     res.json({

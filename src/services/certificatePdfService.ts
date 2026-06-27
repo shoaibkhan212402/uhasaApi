@@ -5,17 +5,27 @@ import {
   UASA_LOGO_FILE,
 } from './certificateAssets.js';
 import type { CertificateData } from './certificateTemplate.js';
+import {
+  CERTIFICATE_BG,
+  CERTIFICATE_BLACK,
+  CERTIFICATE_BUBBLE,
+  CERTIFICATE_GREEN,
+} from './certificateTemplate.js';
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
-const GREEN = '#2E5A31';
-const BLACK = '#1a1a1a';
-const BUBBLE = '#D8E8DC';
+function defaultNoteText(cpdHours?: number, category?: string): string {
+  if (!cpdHours) return '';
+  const cat = category || 'Other Topics';
+  const catText = cat === 'Other Topics'
+    ? 'workshops on other topics'
+    : 'workshops on AML / Cybersecurity / Securities Innovation';
+  return `${cpdHours} hours of ${catText} by CMA (Mandatory)`;
+}
 
 function noteText(data: CertificateData): string {
   if (data.certificateNote) return data.certificateNote;
-  if (data.cpdHours) return `${data.cpdHours} CPD hours — Workshop participation certificate`;
-  return '';
+  return defaultNoteText(data.cpdHours, data.category);
 }
 
 function drawBubbles(doc: PdfDoc, pageH: number) {
@@ -24,13 +34,14 @@ function drawBubbles(doc: PdfDoc, pageH: number) {
     [10, 148, 22], [16, 175, 32], [8, 205, 16], [20, 230, 38], [12, 260, 24],
     [6, 285, 12], [18, 310, 30], [10, 340, 20], [14, 365, 26], [8, 395, 14],
     [22, 420, 40], [10, 450, 18], [16, 475, 34], [8, 505, 12], [20, 530, 28],
+    [12, 560, 22], [8, 585, 16],
   ];
   const scale = pageH / 595;
   doc.save();
   doc.opacity(0.55);
   for (const [cx, cy, r] of circles) {
     if (cy * scale > pageH) continue;
-    doc.circle(cx, cy * scale, r * scale).fill(BUBBLE);
+    doc.circle(cx, cy * scale, r * scale).fill(CERTIFICATE_BUBBLE);
   }
   doc.opacity(1);
   doc.restore();
@@ -63,7 +74,8 @@ export function certificateDataToPdf(data: CertificateData): Promise<Buffer> {
     const contentLeft = 88;
     const contentWidth = w - contentLeft - 48;
 
-    doc.rect(0.75, 0.75, w - 1.5, h - 1.5).lineWidth(1.5).stroke(BLACK);
+    doc.rect(0, 0, w, h).fill(CERTIFICATE_BG);
+    doc.rect(0.75, 0.75, w - 1.5, h - 1.5).lineWidth(1.5).stroke(CERTIFICATE_BLACK);
 
     drawBubbles(doc, h);
 
@@ -76,58 +88,54 @@ export function certificateDataToPdf(data: CertificateData): Promise<Buffer> {
 
     let y = 108;
 
-    doc.font('Times-Italic').fontSize(34).fillColor(GREEN);
+    doc.font('Times-Italic').fontSize(38).fillColor(CERTIFICATE_GREEN);
     doc.text('Certificate of Participation', contentLeft, y, {
       width: contentWidth,
       align: 'center',
     });
-    y += 52;
+    y += 54;
 
-    doc.font('Helvetica').fontSize(14).fillColor(BLACK);
+    doc.font('Times-Roman').fontSize(14).fillColor(CERTIFICATE_BLACK);
     doc.text('The Capital Market Authority hereby certifies that:', contentLeft, y, {
       width: contentWidth,
       align: 'center',
     });
-    y += 28;
+    y += 30;
 
-    doc.font('Times-Bold').fontSize(26).fillColor(BLACK);
+    doc.font('Times-Bold').fontSize(26).fillColor(CERTIFICATE_BLACK);
     doc.text(data.participantName.toUpperCase(), contentLeft, y, {
       width: contentWidth,
       align: 'center',
-      characterSpacing: 1,
+      characterSpacing: 0.8,
     });
-    y += doc.heightOfString(data.participantName.toUpperCase(), { width: contentWidth }) + 14;
+    y += doc.heightOfString(data.participantName.toUpperCase(), { width: contentWidth }) + 16;
 
     const details = [
       'Has attended the online training program organized in cooperation with',
       'The Union of Arab Securities Authorities',
       'on:',
     ];
-    doc.font('Helvetica').fontSize(14);
+    doc.font('Times-Roman').fontSize(14);
     for (const line of details) {
       doc.text(line, contentLeft, y, { width: contentWidth, align: 'center' });
       y += 20;
     }
 
-    y += 4;
-    doc.font('Times-Bold').fontSize(22).fillColor(BLACK);
+    y += 6;
+    doc.font('Times-Bold').fontSize(22).fillColor(CERTIFICATE_BLACK);
     doc.text(`\u201C${data.workshopTitle}\u201D`, contentLeft, y, {
       width: contentWidth,
       align: 'center',
     });
-    y += doc.heightOfString(`\u201C${data.workshopTitle}\u201D`, { width: contentWidth }) + 10;
+    y += doc.heightOfString(`\u201C${data.workshopTitle}\u201D`, { width: contentWidth }) + 14;
 
-    const dividerX = w / 2;
-    doc.moveTo(dividerX, y).lineTo(dividerX, y + 22).lineWidth(1).stroke(BLACK);
-    y += 32;
-
-    doc.font('Helvetica-Bold').fontSize(15).fillColor(BLACK);
+    doc.font('Times-Bold').fontSize(15).fillColor(CERTIFICATE_BLACK);
     doc.text(data.workshopDates, contentLeft, y, { width: contentWidth, align: 'center' });
-    y += 24;
+    y += 22;
 
     const note = noteText(data);
     if (note) {
-      doc.font('Helvetica-Bold').fontSize(12);
+      doc.font('Times-Roman').fontSize(12).fillColor(CERTIFICATE_BLACK);
       doc.text(note, contentLeft, y, { width: contentWidth, align: 'center' });
     }
 

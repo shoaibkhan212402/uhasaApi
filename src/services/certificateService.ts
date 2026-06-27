@@ -19,6 +19,7 @@ import { certificateEmailHtml } from './certificateEmailTemplate.js';
 export interface WorkshopCertificateRow {
   id: number;
   title: string;
+  category: string;
   start_date: string;
   end_date: string;
   cpd_hours: number;
@@ -41,13 +42,14 @@ export function buildCertificateData(
     cpdHours: workshop.cpd_hours,
     programLabel: workshop.invitation_program_label || 'Online CPD Program',
     workshopSubtitle: workshop.invitation_subtitle,
+    category: workshop.category,
     assetsBaseUrl,
   };
 }
 
 export async function getWorkshopForCertificate(workshopId: number) {
   return queryOne<WorkshopCertificateRow>(
-    `SELECT id, title, start_date, end_date, cpd_hours, certificate_note,
+    `SELECT id, title, category, start_date, end_date, cpd_hours, certificate_note,
             invitation_program_label, invitation_subtitle
      FROM workshops WHERE id = ?`,
     [workshopId]

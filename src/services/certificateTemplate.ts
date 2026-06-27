@@ -103,23 +103,37 @@ export interface CertificateData {
   uasaLogoUrl?: string;
   cmaLogoUrl?: string;
   emailHeroUrl?: string;
+  category?: string;
 }
 
 function assetsBase(data: CertificateData): string {
   return (data.assetsBaseUrl || config.certificateAssetsBaseUrl).replace(/\/$/, '');
 }
 
+function defaultNoteText(cpdHours?: number, category?: string): string {
+  if (!cpdHours) return '';
+  const cat = category || 'Other Topics';
+  const catText = cat === 'Other Topics'
+    ? 'workshops on other topics'
+    : 'workshops on AML / Cybersecurity / Securities Innovation';
+  return `${cpdHours} hours of ${catText} by CMA (Mandatory)`;
+}
+
+export const CERTIFICATE_GREEN = '#2E4D31';
+export const CERTIFICATE_BLACK = '#1a1a1a';
+export const CERTIFICATE_BG = '#F9FAF7';
+export const CERTIFICATE_BUBBLE = '#D8E8DC';
+// cx values 6–22 keep circles in a narrow left-edge column (~7.6% of width)
 function bubbleDecoration(): string {
   const circles = [
     [12, 18, 28], [8, 42, 18], [18, 68, 36], [6, 95, 14], [22, 120, 42],
     [10, 148, 22], [16, 175, 32], [8, 205, 16], [20, 230, 38], [12, 260, 24],
     [6, 285, 12], [18, 310, 30], [10, 340, 20], [14, 365, 26], [8, 395, 14],
     [22, 420, 40], [10, 450, 18], [16, 475, 34], [8, 505, 12], [20, 530, 28],
-    [12, 560, 22], [8, 585, 16], [18, 610, 36], [10, 640, 20], [14, 665, 30],
-    [8, 695, 14], [20, 720, 38], [12, 750, 24],
+    [12, 560, 22], [8, 585, 16],
   ];
   return circles
-    .map(([cx, cy, r]) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#D8E8DC" opacity="0.55"/>`)
+    .map(([cx, cy, r]) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${CERTIFICATE_BUBBLE}" opacity="0.55"/>`)
     .join('');
 }
 
@@ -132,9 +146,7 @@ export function certificateHtml(data: CertificateData): string {
   const ref = escapeHtml(data.referenceNumber);
   const note = data.certificateNote
     ? escapeHtml(data.certificateNote)
-    : data.cpdHours
-      ? escapeHtml(`${data.cpdHours} CPD hours — Workshop participation certificate`)
-      : '';
+    : defaultNoteText(data.cpdHours, data.category);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -144,7 +156,11 @@ export function certificateHtml(data: CertificateData): string {
 <title>Certificate of Participation — ${name}</title>
 <style>
   @page { size: A4 landscape; margin: 0; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    min-height: 100%;
+  }
   body {
     margin: 0;
     background: #e8ece9;
@@ -153,30 +169,31 @@ export function certificateHtml(data: CertificateData): string {
     print-color-adjust: exact;
   }
   .page {
-    width: 297mm;
-    height: 210mm;
-    max-width: 100%;
+    width: 100%;
+    max-width: 297mm;
+    height: auto;
+    aspect-ratio: 297 / 210;
     margin: 0 auto;
-    background: #fff;
-    border: 1.5px solid #1a1a1a;
+    background: ${CERTIFICATE_BG};
+    border: 1.5px solid ${CERTIFICATE_BLACK};
     position: relative;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    container-type: inline-size;
   }
   .bubbles {
     position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 72px;
+    inset: 0;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
   }
   .header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    padding: 22px 36px 0 88px;
+    padding: 3.2cqw 3.2cqw 0 8.5cqw;
     position: relative;
     z-index: 1;
   }
@@ -189,14 +206,14 @@ export function certificateHtml(data: CertificateData): string {
     justify-content: flex-end;
   }
   .logo-block img {
-    height: 62px;
+    height: clamp(28px, 5.5cqw, 62px);
     width: auto;
     max-width: 100%;
     object-fit: contain;
     flex-shrink: 0;
   }
   .logo-block img.cma {
-    height: 68px;
+    height: clamp(32px, 6cqw, 68px);
   }
   .body {
     flex: 1;
@@ -205,93 +222,90 @@ export function certificateHtml(data: CertificateData): string {
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 8px 48px 24px 88px;
+    padding: 0.5cqw 4.3cqw 2cqw 8.5cqw;
     position: relative;
     z-index: 1;
   }
   .cert-title {
-    font-size: 34px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(26px, 4.2cqw, 42px);
     font-style: italic;
-    color: #2E5A31;
     font-weight: 400;
-    margin-bottom: 18px;
+    color: ${CERTIFICATE_GREEN};
+    margin-bottom: 1.6cqw;
     letter-spacing: 0.01em;
+    line-height: 1.15;
   }
   .intro {
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 14px;
-    color: #1a1a1a;
-    margin-bottom: 14px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(11px, 1.25cqw, 14px);
+    font-weight: 400;
+    color: ${CERTIFICATE_BLACK};
+    margin-bottom: 1.4cqw;
+    line-height: 1.45;
   }
   .recipient {
-    font-size: 26px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(16px, 2.35cqw, 28px);
     font-weight: 700;
-    color: #1a1a1a;
-    letter-spacing: 0.04em;
-    margin-bottom: 16px;
+    color: ${CERTIFICATE_BLACK};
+    letter-spacing: 0.05em;
+    margin-bottom: 1.5cqw;
     line-height: 1.25;
-    max-width: 90%;
+    max-width: 92%;
   }
   .detail {
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 14px;
-    color: #1a1a1a;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(11px, 1.25cqw, 14px);
+    font-weight: 400;
+    color: ${CERTIFICATE_BLACK};
     line-height: 1.55;
-    margin-bottom: 4px;
+    margin-bottom: 0.35cqw;
   }
   .course-title {
-    font-size: 22px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(14px, 2cqw, 22px);
     font-weight: 700;
-    color: #1a1a1a;
-    margin: 14px 0 10px;
-    line-height: 1.3;
-    max-width: 85%;
-  }
-  .divider {
-    width: 1px;
-    height: 22px;
-    background: #1a1a1a;
-    margin: 6px auto 10px;
+    color: ${CERTIFICATE_BLACK};
+    margin: 1.1cqw 0 1.1cqw;
+    line-height: 1.35;
+    max-width: 88%;
   }
   .dates {
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 15px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(12px, 1.35cqw, 15px);
     font-weight: 700;
-    color: #1a1a1a;
-    margin-bottom: 14px;
+    color: ${CERTIFICATE_BLACK};
+    margin-bottom: 0.9cqw;
+    line-height: 1.4;
   }
   .note {
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    color: #1a1a1a;
-    margin-top: 6px;
-    max-width: 80%;
-    line-height: 1.4;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-size: clamp(10px, 1.05cqw, 12px);
+    font-weight: 400;
+    color: ${CERTIFICATE_BLACK};
+    margin-top: 0.2cqw;
+    max-width: 82%;
+    line-height: 1.45;
   }
   .ref {
     position: absolute;
-    right: 14px;
-    bottom: 48px;
+    right: 1%;
+    bottom: 8%;
     writing-mode: vertical-rl;
     transform: rotate(180deg);
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 9px;
+    font-size: clamp(6px, 0.8cqw, 9px);
     color: #444;
     letter-spacing: 0.03em;
     z-index: 2;
-  }
-  @media screen and (max-width: 900px) {
-    .page { width: 100%; height: auto; min-height: 520px; }
-    .cert-title { font-size: 26px; }
-    .recipient { font-size: 20px; }
-    .course-title { font-size: 18px; }
   }
 </style>
 </head>
 <body>
 <div class="page">
-  <svg class="bubbles" viewBox="0 0 72 800" preserveAspectRatio="xMinYMin slice" aria-hidden="true">
+  <!-- viewBox matches A4 landscape (842×595 pt) so bubbles scale 1:1 with the page -->
+  <svg class="bubbles" viewBox="0 0 842 595" preserveAspectRatio="xMinYMin meet" aria-hidden="true">
     ${bubbleDecoration()}
   </svg>
 
@@ -312,7 +326,6 @@ export function certificateHtml(data: CertificateData): string {
     <p class="detail">The Union of Arab Securities Authorities</p>
     <p class="detail">on:</p>
     <p class="course-title">&ldquo;${title}&rdquo;</p>
-    <div class="divider" aria-hidden="true"></div>
     <p class="dates">${dates}</p>
     ${note ? `<p class="note">${note}</p>` : ''}
   </main>
