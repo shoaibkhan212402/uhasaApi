@@ -167,16 +167,9 @@ router.post('/register-individual', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const { emailHasIndividualRecords } = await import('../../services/individualPortalService.js');
     const { getOrCreateIndividualUser } = await import('../../services/individualRegistrationService.js');
 
     const normalizedEmail = String(email).trim().toLowerCase();
-    const hasRecords = await emailHasIndividualRecords(normalizedEmail);
-    if (!hasRecords) {
-      return res.status(400).json({
-        error: 'No training records found for this email. Register for a workshop first, then create your account.',
-      });
-    }
 
     const existing = await queryOne<{ id: number; role: string }>(
       `SELECT id, role FROM users WHERE LOWER(email) = ?`,
