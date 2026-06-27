@@ -1,0 +1,7 @@
+ALTER TABLE workshops
+  ADD COLUMN title_2 VARCHAR(500) NULL AFTER title,
+  ADD COLUMN display_order INT NOT NULL DEFAULT 0 AFTER is_published,
+  ADD COLUMN registration_open TINYINT(1) NOT NULL DEFAULT 1 AFTER display_order,
+  MODIFY COLUMN language TEXT NULL,
+  MODIFY COLUMN start_date DATETIME NOT NULL,
+  MODIFY COLUMN end_date DATETIME NOT NULL;

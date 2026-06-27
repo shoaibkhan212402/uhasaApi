@@ -1,0 +1,149 @@
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import { pool, queryOne } from '../../db/pool.js';
+import { authRequired, signToken, type UserRole } from '../../middleware/auth.js';
+
+const router = Router();
+
+type DbUser = {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+  company: string | null;
+  bank_id: number | null;
+  must_change_password: number;
+  bank_name?: string | null;
+};
+
+async function fetchUserProfile(userId: number): Promise<DbUser | null> {
+  return queryOne<DbUser>(
+    `SELECT u.id, u.email, u.name, u.role, u.company, u.bank_id, u.must_change_password, b.name AS bank_name
+     FROM users u
+     LEFT JOIN banks b ON b.id = u.bank_id
+     WHERE u.id = ?`,
+    [userId]
+  );
+}
+
+function toProfileResponse(user: DbUser) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    company: user.company,
+    bank_id: user.bank_id,
+    bank_name: user.bank_name ?? null,
+    must_change_password: user.must_change_password === 1,
+  };
+}
+
+function signProfileToken(user: DbUser) {
+  return signToken({
+    id: user.id,
+    email: user.email,
+    role: user.role as UserRole,
+    name: user.name,
+    must_change_password: user.must_change_password === 1,
+    company: user.company,
+    bank_id: user.bank_id,
+  });
+}
+
+router.get('/me', authRequired, async (req, res) => {
+  try {
+    const user = await fetchUserProfile(req.user!.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(toProfileResponse(user));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+router.patch('/profile', authRequired, async (req, res) => {
+  try {
+    const { name, company } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const role = req.user!.role;
+    const trimmedName = name.trim();
+
+    if (role === 'corporate') {
+      const trimmedCompany = typeof company === 'string' ? company.trim() : '';
+      if (!trimmedCompany) {
+        return res.status(400).json({ error: 'Company name is required' });
+      }
+      await pool.execute(`UPDATE users SET name = ?, company = ? WHERE id = ?`, [
+        trimmedName,
+        trimmedCompany,
+        req.user!.id,
+      ]);
+    } else {
+      await pool.execute(`UPDATE users SET name = ? WHERE id = ?`, [trimmedName, req.user!.id]);
+    }
+
+    const updated = await fetchUserProfile(req.user!.id);
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+
+    res.json({
+      message: 'Profile updated',
+      token: signProfileToken(updated),
+      user: toProfileResponse(updated),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+router.post('/change-password', authRequired, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password || new_password.length < 6) {
+      return res.status(400).json({ error: 'Valid current and new password (min 6 chars) required' });
+    }
+
+    const user = await queryOne<{ password_hash: string }>(
+      `SELECT password_hash FROM users WHERE id = ?`,
+      [req.user!.id]
+    );
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const valid = await bcrypt.compare(current_password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    const hash = await bcrypt.hash(new_password, 10);
+    await pool.execute(
+      `UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?`,
+      [hash, req.user!.id]
+    );
+
+    const updated = await fetchUserProfile(req.user!.id);
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+
+    const token = signToken({
+      id: updated.id,
+      email: updated.email,
+      role: updated.role as UserRole,
+      name: updated.name,
+      must_change_password: false,
+      company: updated.company,
+      bank_id: updated.bank_id,
+    });
+
+    res.json({
+      message: 'Password updated',
+      token,
+      user: { ...toProfileResponse(updated), must_change_password: false },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+export default router;

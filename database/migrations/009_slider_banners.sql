@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS slider_banners (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  image_url VARCHAR(1000) NOT NULL,
+  alt_text VARCHAR(255) NOT NULL DEFAULT '',
+  link_url VARCHAR(1000) NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_published TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_slider_banners_published (is_published, sort_order)
+);

@@ -1,0 +1,8 @@
+ALTER TABLE users ADD COLUMN created_by INT NULL;
+ALTER TABLE users ADD FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE banks ADD COLUMN created_by INT NULL;
+ALTER TABLE banks ADD FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE registrations ADD COLUMN created_by INT NULL;
+ALTER TABLE registrations ADD FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
