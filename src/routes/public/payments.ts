@@ -8,7 +8,6 @@ import {
   handleTelrReturn,
   handleTelrWebhook,
 } from '../../services/paymentService.js';
-import { createRegistration, type CreateRegistrationInput } from '../../services/registrationService.js';
 import type { PortalUser } from '../../services/participantService.js';
 import { createPendingIndividualRegistration } from '../../services/individualRegistrationService.js';
 
@@ -28,7 +27,7 @@ function toPortalUser(req: Request): PortalUser {
 
 router.post('/cart-checkout', async (req, res) => {
   try {
-    const { registrations, total_amount, customer_email } = req.body;
+    const { registrations, total_amount, customer_email, customer_name, customer_phone } = req.body;
 
     if (!Array.isArray(registrations) || registrations.length === 0) {
       return res.status(400).json({ error: 'At least one registration is required' });
@@ -39,17 +38,28 @@ router.post('/cart-checkout', async (req, res) => {
       return res.status(400).json({ error: 'Customer email is required' });
     }
 
-    const registrationIds: number[] = [];
-    for (const reg of registrations) {
-      const id = await createRegistration(reg as CreateRegistrationInput);
-      registrationIds.push(id);
+    const amount = Number(total_amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'A valid total_amount is required' });
     }
 
-    res.status(201).json({ completed: true, registration_ids: registrationIds });
+    const session = await createPublicCartCheckout(
+      registrations as import('../../services/registrationService.js').CreateRegistrationInput[],
+      amount,
+      email,
+      customer_name ? String(customer_name) : undefined,
+      customer_phone ? String(customer_phone) : undefined
+    );
+
+    res.status(201).json(session);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Checkout failed';
     const status =
-      message.includes('seats') || message.includes('not found') || message.includes('not configured')
+      message.includes('seats') ||
+      message.includes('not found') ||
+      message.includes('not configured') ||
+      message.includes('not available') ||
+      message.includes('amount')
         ? 400
         : 500;
     console.error(err);
