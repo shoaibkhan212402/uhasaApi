@@ -64,8 +64,8 @@ router.post('/:workshopId/register', portalRequired, async (req, res) => {
       return res.status(400).json({ error: 'At least one participant is required' });
     }
 
-    if (payment_method !== 'bank_transfer' && payment_method !== 'online') {
-      return res.status(400).json({ error: 'Valid payment method is required' });
+    if (payment_method !== 'bank_transfer') {
+      return res.status(400).json({ error: 'Only Bank Transfer payment method is allowed' });
     }
 
     const result = await registerWorkshopBooking(toPortalUser(req), {

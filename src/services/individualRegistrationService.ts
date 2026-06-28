@@ -54,6 +54,28 @@ export async function getOrCreateIndividualUser(
   return userId;
 }
 
+/** Save the latest registration details back to the individual user's profile for prefill. */
+async function syncProfileFromRegistration(
+  userId: number,
+  details: {
+    phone?: string | null;
+    person_id?: string | null;
+    job_position?: string | null;
+    company?: string | null;
+  }
+): Promise<void> {
+  // Only update fields that were actually provided — don't overwrite with nulls
+  const updates: string[] = [];
+  const params: unknown[] = [];
+  if (details.phone) { updates.push('phone = ?'); params.push(details.phone.trim()); }
+  if (details.person_id) { updates.push('person_id = ?'); params.push(details.person_id.trim()); }
+  if (details.job_position) { updates.push('job_position = ?'); params.push(details.job_position.trim()); }
+  if (details.company) { updates.push('company = ?'); params.push(details.company.trim()); }
+  if (updates.length === 0) return;
+  params.push(userId);
+  await pool.execute(`UPDATE users SET ${updates.join(', ')} WHERE id = ? AND role = 'individual'`, params as string[]);
+}
+
 export async function fulfillIndividualRegistration(registrationId: number): Promise<void> {
   const reg = await queryOne<{
     id: number;
@@ -283,5 +305,7 @@ export async function registerIndividualForWorkshop(
 ): Promise<{ registrationId: number; workshopTitle: string }> {
   const pending = await createPendingIndividualRegistration(userId, email, name, workshopId, details);
   await fulfillIndividualRegistration(pending.registrationId);
+  // Persist the provided details back to the user's profile for future prefill
+  await syncProfileFromRegistration(userId, details).catch(() => {/* non-critical */});
   return { registrationId: pending.registrationId, workshopTitle: pending.workshopTitle };
 }

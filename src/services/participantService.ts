@@ -94,6 +94,12 @@ export async function addParticipant(user: PortalUser, input: AddParticipantInpu
 
   const workshop = await assertWorkshopSeatsAvailable(input.workshop_id);
 
+  const start = new Date(workshop.start_date);
+  const hoursDiff = (start.getTime() - Date.now()) / (3600 * 1000);
+  if (hoursDiff < 24) {
+    throw new Error('Registration is locked within 24 hours of the workshop start time.');
+  }
+
   const existing = await queryOne(
     `SELECT id FROM participants WHERE user_id = ? AND workshop_id = ? AND email = ? AND status != 'cancelled'`,
     [user.id, input.workshop_id, input.email]
@@ -449,6 +455,41 @@ export async function updateParticipant(
     throw new Error('Participant not found');
   }
 
+  // Task 12: Enforce 24-hour lock on existing workshop
+  if (userRole !== 'admin' && existing.workshop_id !== null) {
+    const currentWorkshop = await queryOne<{ start_date: string }>(
+      `SELECT start_date FROM workshops WHERE id = ?`,
+      [existing.workshop_id]
+    );
+    if (currentWorkshop) {
+      const start = new Date(currentWorkshop.start_date);
+      const hoursDiff = (start.getTime() - Date.now()) / (3600 * 1000);
+      if (hoursDiff < 24) {
+        throw new Error('Modifications are locked within 24 hours of the workshop start time.');
+      }
+    }
+  }
+
+  // Task 12: Enforce 24-hour lock on target workshop
+  if (
+    userRole !== 'admin' &&
+    input.workshop_id !== undefined &&
+    input.workshop_id !== existing.workshop_id &&
+    input.workshop_id !== null
+  ) {
+    const targetWorkshop = await queryOne<{ start_date: string }>(
+      `SELECT start_date FROM workshops WHERE id = ?`,
+      [input.workshop_id]
+    );
+    if (targetWorkshop) {
+      const start = new Date(targetWorkshop.start_date);
+      const hoursDiff = (start.getTime() - Date.now()) / (3600 * 1000);
+      if (hoursDiff < 24) {
+        throw new Error('Target workshop start time is within 24 hours. Transfer is locked.');
+      }
+    }
+  }
+
   const targetWorkshopId =
     input.workshop_id !== undefined ? input.workshop_id : existing.workshop_id;
   const targetEmail = input.email ?? existing.email;
@@ -538,10 +579,36 @@ export async function updateParticipant(
     );
     const vatAmount = Math.round(amount * 0.05 * 100) / 100;
     const totalAmount = Math.round((amount + vatAmount) * 100) / 100;
-    await pool.execute(
-      `UPDATE invoices SET workshop_id = ?, amount = ?, vat_amount = ?, total_amount = ? WHERE id = ?`,
-      [input.workshop_id, amount, vatAmount, totalAmount, existing.invoice_id]
+
+    // Task 12: Retain the same invoice number unless the month changes.
+    const existingInvoice = await queryOne<{ created_at: string }>(
+      `SELECT created_at FROM invoices WHERE id = ?`,
+      [existing.invoice_id]
     );
+    const originalMonth = existingInvoice ? new Date(existingInvoice.created_at).getMonth() : null;
+    const originalYear = existingInvoice ? new Date(existingInvoice.created_at).getFullYear() : null;
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    const monthChanged = originalMonth !== currentMonth || originalYear !== currentYear;
+
+    if (monthChanged) {
+      const { generateInvoiceNumber } = await import('./orderReference.js');
+      const newInvoiceNumber = await generateInvoiceNumber();
+      const newInvoiceId = await insert(
+        `INSERT INTO invoices (invoice_number, user_id, workshop_id, participant_id, amount, vat_amount, total_amount, status, sent_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', NOW())`,
+        [newInvoiceNumber, userId, input.workshop_id, participantId, amount, vatAmount, totalAmount]
+      );
+      await pool.execute(
+        `UPDATE participants SET invoice_id = ? WHERE id = ?`,
+        [newInvoiceId, participantId]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE invoices SET workshop_id = ?, amount = ?, vat_amount = ?, total_amount = ? WHERE id = ?`,
+        [input.workshop_id, amount, vatAmount, totalAmount, existing.invoice_id]
+      );
+    }
   }
 }
 
@@ -552,6 +619,23 @@ export async function bulkCancelParticipants(userId: number, ids: number[]) {
   }
 
   const placeholders = uniqueIds.map(() => '?').join(',');
+
+  // Task 12: Enforce 24-hour cancellation lock
+  const activeWorkshops = await query<{ start_date: string }>(
+    `SELECT DISTINCT w.start_date FROM participants p
+     JOIN workshops w ON w.id = p.workshop_id
+     WHERE p.user_id = ? AND p.id IN (${placeholders})`,
+    [userId, ...uniqueIds]
+  );
+  
+  for (const w of activeWorkshops) {
+    const start = new Date(w.start_date);
+    const hoursDiff = (start.getTime() - Date.now()) / (3600 * 1000);
+    if (hoursDiff < 24) {
+      throw new Error('Cannot cancel/archive registrations within 24 hours of the workshop start time.');
+    }
+  }
+
   const [result] = await pool.execute(
     `UPDATE participants SET status = 'cancelled', archived_at = NOW()
      WHERE user_id = ? AND id IN (${placeholders}) AND status != 'cancelled'`,

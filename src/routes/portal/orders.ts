@@ -29,7 +29,14 @@ router.get('/', portalRequired, async (req, res) => {
          i.status AS invoice_status
        FROM participants p
        JOIN workshops w ON w.id = p.workshop_id
-       LEFT JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN invoices i ON i.id = COALESCE(p.invoice_id, (
+         SELECT id FROM invoices 
+         WHERE user_id = p.user_id 
+           AND YEAR(created_at) = YEAR(p.created_at) 
+           AND MONTH(created_at) = MONTH(p.created_at) 
+           AND registration_id IS NULL
+         ORDER BY id ASC LIMIT 1
+       ))
        WHERE p.user_id = ?
        ORDER BY p.created_at DESC`,
       [req.user!.id]
@@ -49,10 +56,13 @@ router.get('/:participantId/invoice', portalRequired, async (req, res) => {
     }
 
     const row = await queryOne<{
-      invoice_id: number;
-      invoice_number: string;
-      invoice_status: string;
-      created_at: string;
+      invoice_id: number | null;
+      invoice_number: string | null;
+      invoice_status: string | null;
+      created_at: string | null;
+      amount: number | null;
+      vat_amount: number | null;
+      total_amount: number | null;
       workshop_id: number;
       workshop_title: string;
       workshop_format: string;
@@ -72,6 +82,9 @@ router.get('/:participantId/invoice', portalRequired, async (req, res) => {
          i.invoice_number,
          i.status AS invoice_status,
          i.created_at,
+         i.amount,
+         i.vat_amount,
+         i.total_amount,
          p.workshop_id,
          w.title AS workshop_title,
          w.format AS workshop_format,
@@ -103,20 +116,26 @@ router.get('/:participantId/invoice', portalRequired, async (req, res) => {
          (
            SELECT COUNT(*)
            FROM participants p2
-           WHERE p2.user_id = p.user_id
-             AND p2.workshop_id = p.workshop_id
+           WHERE p2.invoice_id = i.id
              AND p2.status != 'cancelled'
          ) AS participant_count
        FROM participants p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN banks b ON b.id = u.bank_id
        JOIN workshops w ON w.id = p.workshop_id
-       JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN invoices i ON i.id = COALESCE(p.invoice_id, (
+         SELECT id FROM invoices 
+         WHERE user_id = p.user_id 
+           AND YEAR(created_at) = YEAR(p.created_at) 
+           AND MONTH(created_at) = MONTH(p.created_at) 
+           AND registration_id IS NULL
+         ORDER BY id ASC LIMIT 1
+       ))
        WHERE p.id = ? AND p.user_id = ?`,
       [participantId, req.user!.id]
     );
 
-    if (!row) {
+    if (!row || !row.invoice_id || !row.invoice_number) {
       return res.status(404).json({ error: 'Invoice not found for this order' });
     }
 
@@ -137,6 +156,9 @@ router.get('/:participantId/invoice', portalRequired, async (req, res) => {
       endDate: String(row.end_date),
       participantCount: Number(row.participant_count) || 1,
       unitPrice: Number(row.workshop_price),
+      subtotal: Number(row.amount),
+      vatAmount: Number(row.vat_amount),
+      totalAmount: Number(row.total_amount),
     });
 
     const accept = String(req.headers.accept || '');

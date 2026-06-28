@@ -92,6 +92,8 @@ router.get('/:id/pdf', async (req, res) => {
       workshop_start_date: string | null;
       workshop_end_date: string | null;
       amount: number;
+      vat_amount: number;
+      total_amount: number;
     };
 
     const billedTo =
@@ -101,6 +103,12 @@ router.get('/:id/pdf', async (req, res) => {
 
     const { buildInvoiceData } = await import('../../services/invoiceService.js');
     const { invoiceDataToPdf } = await import('../../services/invoicePdfService.js');
+
+    const countRow = await queryOne<{ count: number }>(
+      `SELECT COUNT(*) as count FROM participants WHERE invoice_id = ? AND status != 'cancelled'`,
+      [id]
+    );
+    const participantCount = countRow?.count || 1;
 
     const invoiceData = buildInvoiceData({
       invoiceNumber: row.invoice_number,
@@ -112,8 +120,11 @@ router.get('/:id/pdf', async (req, res) => {
       workshopFormat: row.workshop_format || 'Online',
       startDate: row.workshop_start_date ? String(row.workshop_start_date) : String(row.created_at),
       endDate: row.workshop_end_date ? String(row.workshop_end_date) : String(row.created_at),
-      participantCount: 1,
-      unitPrice: Number(row.amount),
+      participantCount,
+      unitPrice: Number(row.amount) / participantCount,
+      subtotal: Number(row.amount),
+      vatAmount: Number(row.vat_amount),
+      totalAmount: Number(row.total_amount),
     });
 
     const pdf = await invoiceDataToPdf(invoiceData);

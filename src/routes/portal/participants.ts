@@ -3,7 +3,7 @@ import multer from 'multer';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { pool } from '../../db/pool.js';
+import { pool, queryOne } from '../../db/pool.js';
 import { portalRequired } from '../../middleware/auth.js';
 import {
   addParticipant,
@@ -282,6 +282,33 @@ router.post('/bulk-cancel', portalRequired, async (req, res) => {
 router.delete('/:id', portalRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Invalid ID' });
+    }
+
+    // Task 12: Enforce 24-hour cancellation lock
+    const participant = await queryOne<{ workshop_id: number | null }>(
+      `SELECT workshop_id FROM participants WHERE id = ? AND user_id = ? AND status != 'cancelled'`,
+      [id, req.user!.id]
+    );
+    if (!participant) {
+      return res.status(404).json({ error: 'Participant not found' });
+    }
+
+    if (participant.workshop_id !== null) {
+      const workshop = await queryOne<{ start_date: string }>(
+        `SELECT start_date FROM workshops WHERE id = ?`,
+        [participant.workshop_id]
+      );
+      if (workshop) {
+        const start = new Date(workshop.start_date);
+        const hoursDiff = (start.getTime() - Date.now()) / (3600 * 1000);
+        if (hoursDiff < 24) {
+          return res.status(400).json({ error: 'Cannot cancel/archive registrations within 24 hours of the workshop start time.' });
+        }
+      }
+    }
+
     const [result] = await pool.execute(
       `UPDATE participants SET status = 'cancelled', archived_at = NOW() WHERE id = ? AND user_id = ?`,
       [id, req.user!.id]

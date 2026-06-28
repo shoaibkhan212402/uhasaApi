@@ -378,11 +378,14 @@ export function buildInvoiceData(input: {
   endDate: string;
   participantCount: number;
   unitPrice: number;
+  subtotal?: number;
+  vatAmount?: number;
+  totalAmount?: number;
 }): InvoiceData {
   const participantCount = Math.max(1, input.participantCount);
-  const subtotal = Math.round(input.unitPrice * participantCount * 100) / 100;
-  const vatAmount = Math.round(subtotal * 0.05 * 100) / 100;
-  const totalAmount = Math.round((subtotal + vatAmount) * 100) / 100;
+  const subtotal = input.subtotal !== undefined ? input.subtotal : Math.round(input.unitPrice * participantCount * 100) / 100;
+  const vatAmount = input.vatAmount !== undefined ? input.vatAmount : Math.round(subtotal * 0.05 * 100) / 100;
+  const totalAmount = input.totalAmount !== undefined ? input.totalAmount : Math.round((subtotal + vatAmount) * 100) / 100;
 
   return {
     invoiceNumber: input.invoiceNumber,

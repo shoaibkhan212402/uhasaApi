@@ -12,12 +12,15 @@ type DbUser = {
   name: string;
   role: string;
   company: string | null;
+  phone: string | null;
+  person_id: string | null;
+  job_position: string | null;
   must_change_password: number;
 };
 
 async function fetchUserProfile(userId: number): Promise<DbUser | null> {
   return queryOne<DbUser>(
-    `SELECT id, email, name, role, company, must_change_password FROM users WHERE id = ?`,
+    `SELECT id, email, name, role, company, phone, person_id, job_position, must_change_password FROM users WHERE id = ?`,
     [userId]
   );
 }
@@ -29,6 +32,9 @@ function toProfileResponse(user: DbUser) {
     name: user.name,
     role: user.role,
     company: user.company,
+    phone: user.phone ?? null,
+    person_id: user.person_id ?? null,
+    job_position: user.job_position ?? null,
     must_change_password: user.must_change_password === 1,
   };
 }
@@ -58,12 +64,22 @@ router.get('/me', authRequired, individualRequired, async (req, res) => {
 
 router.patch('/profile', authRequired, individualRequired, async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, phone, person_id, job_position, company } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    await pool.execute(`UPDATE users SET name = ? WHERE id = ?`, [name.trim(), req.user!.id]);
+    await pool.execute(
+      `UPDATE users SET name = ?, phone = ?, person_id = ?, job_position = ?, company = ? WHERE id = ?`,
+      [
+        name.trim(),
+        phone?.trim() || null,
+        person_id?.trim() || null,
+        job_position?.trim() || null,
+        company?.trim() || null,
+        req.user!.id,
+      ]
+    );
 
     const updated = await fetchUserProfile(req.user!.id);
     if (!updated) return res.status(404).json({ error: 'User not found' });
