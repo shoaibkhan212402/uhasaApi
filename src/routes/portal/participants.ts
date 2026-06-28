@@ -84,12 +84,19 @@ router.get('/limits/:workshopId', portalRequired, async (req, res) => {
     const workshopId = parseInt(req.params.workshopId, 10);
     const count = await getParticipantCountForWorkshop(req.user!.id, workshopId);
     const { queryOne } = await import('../../db/pool.js');
-    const workshop = await queryOne<{ cto_cma_limit: number }>(
-      `SELECT cto_cma_limit FROM workshops WHERE id = ?`,
+    const workshop = await queryOne<{ cto_cma_limit: number; cma_limit: number | null; hct_limit: number | null }>(
+      `SELECT cto_cma_limit, cma_limit, hct_limit FROM workshops WHERE id = ?`,
       [workshopId]
     );
     const role = req.user!.role;
-    const limit = role === 'cto' || role === 'cma' ? (workshop?.cto_cma_limit ?? 3) : null;
+    let limit: number | null = null;
+    if (workshop) {
+      if (role === 'cto') {
+        limit = workshop.hct_limit !== null ? workshop.hct_limit : (workshop.cto_cma_limit ?? 3);
+      } else if (role === 'cma') {
+        limit = workshop.cma_limit !== null ? workshop.cma_limit : (workshop.cto_cma_limit ?? 3);
+      }
+    }
     res.json({ count, limit, remaining: limit !== null ? Math.max(0, limit - count) : null });
   } catch (err) {
     console.error(err);

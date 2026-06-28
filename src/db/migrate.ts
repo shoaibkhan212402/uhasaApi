@@ -35,8 +35,17 @@ async function migrate() {
 
     const statements = sql
       .split(';')
-      .map((s) => s.trim())
-      .filter((s) => s && !s.startsWith('--'));
+      .map((s) => {
+        const lines = s.split('\n').map((line) => {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('--') || trimmed.startsWith('#')) {
+            return '';
+          }
+          return line;
+        });
+        return lines.join('\n').trim();
+      })
+      .filter((s) => s !== '');
 
     console.log(`Running migration ${file} on ${config.db.database}...`);
 

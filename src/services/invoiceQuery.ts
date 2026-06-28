@@ -16,7 +16,7 @@ export const INVOICE_FROM = `
 export const INVOICE_SELECT = `
   SELECT i.id,
          i.invoice_number,
-         COALESCE(i.participant_id, i.registration_id) AS order_id,
+         COALESCE(i.participant_id, i.registration_id, i.id) AS order_id,
          CASE
            WHEN reg_invoice.id IS NOT NULL AND reg_invoice.invoice_type IS NOT NULL THEN reg_invoice.invoice_type
            WHEN u.role = 'bank' AND COALESCE(b.auto_invoice, 1) = 0 THEN 'Manual'
@@ -99,7 +99,7 @@ export function applyInvoiceFilters(
     const term = `%${String(search).trim()}%`;
     sql += ` AND (
       i.invoice_number LIKE ?
-      OR CAST(COALESCE(i.participant_id, i.registration_id) AS CHAR) LIKE ?
+      OR CAST(COALESCE(i.participant_id, i.registration_id, i.id) AS CHAR) LIKE ?
       OR CAST(i.id AS CHAR) LIKE ?
       OR COALESCE(p.full_name, reg_invoice.full_name) LIKE ?
       OR COALESCE(p.email, reg_invoice.email) LIKE ?

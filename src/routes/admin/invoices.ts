@@ -64,6 +64,71 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/:id/pdf', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: 'Invalid invoice id' });
+    }
+
+    const invoice = await queryOne(
+      `${INVOICE_SELECT} ${INVOICE_FROM} WHERE i.id = ?`,
+      [id]
+    );
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    const row = invoice as {
+      invoice_number: string;
+      created_at: string;
+      user_role: string;
+      bank_name: string | null;
+      user_company: string | null;
+      user_name: string;
+      workshop_title: string | null;
+      workshop_format: string | null;
+      workshop_start_date: string | null;
+      workshop_end_date: string | null;
+      amount: number;
+    };
+
+    const billedTo =
+      row.user_role === 'bank'
+        ? row.bank_name || row.user_company || row.user_name
+        : row.user_company || row.user_name;
+
+    const { buildInvoiceData } = await import('../../services/invoiceService.js');
+    const { invoiceDataToPdf } = await import('../../services/invoicePdfService.js');
+
+    const invoiceData = buildInvoiceData({
+      invoiceNumber: row.invoice_number,
+      createdAt: String(row.created_at),
+      billedTo,
+      billedAddress: null,
+      billedTrn: null,
+      workshopTitle: row.workshop_title || 'CPD Training Program',
+      workshopFormat: row.workshop_format || 'Online',
+      startDate: row.workshop_start_date ? String(row.workshop_start_date) : String(row.created_at),
+      endDate: row.workshop_end_date ? String(row.workshop_end_date) : String(row.created_at),
+      participantCount: 1,
+      unitPrice: Number(row.amount),
+    });
+
+    const pdf = await invoiceDataToPdf(invoiceData);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${row.invoice_number}.pdf"`
+    );
+    res.send(pdf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to download PDF invoice' });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);

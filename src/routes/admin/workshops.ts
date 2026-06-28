@@ -109,13 +109,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid workshop language. Choose English, Arabic, or Both.' });
     }
     const id = await insert(
-      `INSERT INTO workshops (title, title_2, category, cpd_hours, start_date, end_date, time_slot, language, format, image_url, description, price, total_seats, cto_cma_limit, zoom_link, invitation_program_label, invitation_subtitle, meeting_id, meeting_passcode, training_materials_url, pre_assessment_url, post_assessment_url, invitation_banner_url, certificate_note, reminder_days_before, is_published, display_order, registration_open)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO workshops (title, title_2, category, cpd_hours, start_date, end_date, time_slot, language, format, image_url, description, price, total_seats, cto_cma_limit, cma_limit, hct_limit, zoom_link, invitation_program_label, invitation_subtitle, meeting_id, meeting_passcode, training_materials_url, pre_assessment_url, post_assessment_url, invitation_banner_url, certificate_note, reminder_days_before, is_published, display_order, registration_open)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         b.title, b.title_2 || null, b.category, b.cpd_hours || 0, b.start_date, b.end_date,
         b.time_slot || '', language, b.format || 'Online',
         b.image_url || null, b.description || null, b.price ?? 1950,
-        b.total_seats ?? 40, b.cto_cma_limit ?? 3, b.zoom_link || null,
+        b.total_seats ?? 40, b.cto_cma_limit ?? 3,
+        b.cma_limit === undefined || b.cma_limit === null || b.cma_limit === '' ? null : Number(b.cma_limit),
+        b.hct_limit === undefined || b.hct_limit === null || b.hct_limit === '' ? null : Number(b.hct_limit),
+        b.zoom_link || null,
         b.invitation_program_label || 'Online CPD Program', b.invitation_subtitle || null,
         b.meeting_id || null, b.meeting_passcode || null,
         b.training_materials_url || null, b.pre_assessment_url || null, b.post_assessment_url || null,
@@ -213,11 +216,14 @@ router.put('/:id', async (req, res) => {
     }
 
     await pool.execute(
-      `UPDATE workshops SET title=?, title_2=?, category=?, cpd_hours=?, start_date=?, end_date=?, time_slot=?, language=?, format=?, image_url=?, description=?, price=?, total_seats=?, cto_cma_limit=?, zoom_link=?, invitation_program_label=?, invitation_subtitle=?, meeting_id=?, meeting_passcode=?, training_materials_url=?, pre_assessment_url=?, post_assessment_url=?, invitation_banner_url=?, certificate_note=?, reminder_days_before=?, is_published=?, display_order=?, registration_open=? WHERE id=?`,
+      `UPDATE workshops SET title=?, title_2=?, category=?, cpd_hours=?, start_date=?, end_date=?, time_slot=?, language=?, format=?, image_url=?, description=?, price=?, total_seats=?, cto_cma_limit=?, cma_limit=?, hct_limit=?, zoom_link=?, invitation_program_label=?, invitation_subtitle=?, meeting_id=?, meeting_passcode=?, training_materials_url=?, pre_assessment_url=?, post_assessment_url=?, invitation_banner_url=?, certificate_note=?, reminder_days_before=?, is_published=?, display_order=?, registration_open=? WHERE id=?`,
       [
         b.title, b.title_2 || null, b.category, b.cpd_hours, b.start_date, b.end_date,
         b.time_slot, language, b.format, b.image_url, b.description,
-        b.price, b.total_seats, b.cto_cma_limit ?? 3, b.zoom_link || null,
+        b.price, b.total_seats, b.cto_cma_limit ?? 3,
+        b.cma_limit === undefined || b.cma_limit === null || b.cma_limit === '' ? null : Number(b.cma_limit),
+        b.hct_limit === undefined || b.hct_limit === null || b.hct_limit === '' ? null : Number(b.hct_limit),
+        b.zoom_link || null,
         b.invitation_program_label || 'Online CPD Program', b.invitation_subtitle || null,
         b.meeting_id || null, b.meeting_passcode || null,
         b.training_materials_url || null, b.pre_assessment_url || null, b.post_assessment_url || null,
@@ -241,6 +247,23 @@ router.put('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update workshop' });
+  }
+});
+
+router.patch('/:id/limits', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const b = req.body;
+    const cma_limit = b.cma_limit === undefined || b.cma_limit === null || b.cma_limit === '' ? null : Number(b.cma_limit);
+    const hct_limit = b.hct_limit === undefined || b.hct_limit === null || b.hct_limit === '' ? null : Number(b.hct_limit);
+    await pool.execute(
+      `UPDATE workshops SET cma_limit = ?, hct_limit = ? WHERE id = ?`,
+      [cma_limit, hct_limit, id]
+    );
+    res.json({ message: 'Limits updated' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update limits' });
   }
 });
 

@@ -30,12 +30,14 @@ async function assertWorkshopSeatsAvailable(workshopId: number) {
     price: number;
     total_seats: number;
     cto_cma_limit: number;
+    cma_limit: number | null;
+    hct_limit: number | null;
     start_date: string;
     end_date: string;
     time_slot: string;
     is_published: number;
   }>(
-    `SELECT id, title, price, total_seats, cto_cma_limit, start_date, end_date, time_slot, is_published
+    `SELECT id, title, price, total_seats, cto_cma_limit, cma_limit, hct_limit, start_date, end_date, time_slot, is_published
      FROM workshops WHERE id = ? AND is_published = 1 AND end_date >= CURDATE()`,
     [workshopId]
   );
@@ -106,10 +108,15 @@ export async function addParticipant(user: PortalUser, input: AddParticipantInpu
   );
   const enrolledCount = enrolledCountRow?.count || 0;
 
-  if (user.role === 'cto' || user.role === 'cma') {
-    const limit = workshop.cto_cma_limit ?? 3;
+  if (user.role === 'cto') {
+    const limit = workshop.hct_limit !== null ? workshop.hct_limit : (workshop.cto_cma_limit ?? 3);
     if (enrolledCount >= limit) {
-      throw new Error(`Registration limit reached (${limit} participants per workshop)`);
+      throw new Error(`HCT registration limit reached (${limit} participants per workshop)`);
+    }
+  } else if (user.role === 'cma') {
+    const limit = workshop.cma_limit !== null ? workshop.cma_limit : (workshop.cto_cma_limit ?? 3);
+    if (enrolledCount >= limit) {
+      throw new Error(`CMA registration limit reached (${limit} participants per workshop)`);
     }
   }
 
@@ -370,9 +377,11 @@ async function assertWorkshopTransferAllowed(
     price: number;
     total_seats: number;
     cto_cma_limit: number;
+    cma_limit: number | null;
+    hct_limit: number | null;
     is_published: number;
   }>(
-    `SELECT id, title, price, total_seats, cto_cma_limit, is_published
+    `SELECT id, title, price, total_seats, cto_cma_limit, cma_limit, hct_limit, is_published
      FROM workshops WHERE id = ? AND is_published = 1 AND end_date >= CURDATE()`,
     [newWorkshopId]
   );
@@ -395,7 +404,9 @@ async function assertWorkshopTransferAllowed(
       `SELECT COUNT(*) as count FROM participants WHERE user_id = ? AND workshop_id = ? AND status != 'cancelled'`,
       [userId, newWorkshopId]
     );
-    const limit = workshop.cto_cma_limit ?? 3;
+    const limit = userRole === 'cto'
+      ? (workshop.hct_limit !== null ? workshop.hct_limit : (workshop.cto_cma_limit ?? 3))
+      : (workshop.cma_limit !== null ? workshop.cma_limit : (workshop.cto_cma_limit ?? 3));
     if ((countRow?.count || 0) >= limit) {
       throw new Error(`Registration limit reached (${limit} participants per workshop)`);
     }
@@ -617,8 +628,8 @@ export async function restoreParticipants(userId: number, userRole: string, ids:
         }
 
         if (userRole === 'cto' || userRole === 'cma') {
-          const workshop = await queryOne<{ cto_cma_limit: number }>(
-            `SELECT cto_cma_limit FROM workshops WHERE id = ?`,
+          const workshop = await queryOne<{ cto_cma_limit: number; cma_limit: number | null; hct_limit: number | null }>(
+            `SELECT cto_cma_limit, cma_limit, hct_limit FROM workshops WHERE id = ?`,
             [row.workshop_id]
           );
           const countRow = await queryOne<{ count: number }>(
@@ -626,7 +637,9 @@ export async function restoreParticipants(userId: number, userRole: string, ids:
              WHERE user_id = ? AND workshop_id = ? AND status != 'cancelled'`,
             [userId, row.workshop_id]
           );
-          const limit = workshop?.cto_cma_limit ?? 3;
+          const limit = userRole === 'cto'
+            ? (workshop?.hct_limit !== null ? workshop?.hct_limit ?? 3 : (workshop?.cto_cma_limit ?? 3))
+            : (workshop?.cma_limit !== null ? workshop?.cma_limit ?? 3 : (workshop?.cto_cma_limit ?? 3));
           if ((countRow?.count || 0) >= limit) {
             errors.push(`Registration limit reached for workshop enrollment (${row.email})`);
             continue;
