@@ -8,7 +8,7 @@ import {
   handleTelrReturn,
   handleTelrWebhook,
 } from '../../services/paymentService.js';
-import type { CreateRegistrationInput } from '../../services/registrationService.js';
+import { createRegistration, type CreateRegistrationInput } from '../../services/registrationService.js';
 import type { PortalUser } from '../../services/participantService.js';
 import { createPendingIndividualRegistration } from '../../services/individualRegistrationService.js';
 
@@ -28,15 +28,10 @@ function toPortalUser(req: Request): PortalUser {
 
 router.post('/cart-checkout', async (req, res) => {
   try {
-    const { registrations, total_amount, customer_email, customer_name, customer_phone } = req.body;
+    const { registrations, total_amount, customer_email } = req.body;
 
     if (!Array.isArray(registrations) || registrations.length === 0) {
       return res.status(400).json({ error: 'At least one registration is required' });
-    }
-
-    const total = Number(total_amount);
-    if (!Number.isFinite(total) || total <= 0) {
-      return res.status(400).json({ error: 'Valid total amount is required' });
     }
 
     const email = String(customer_email || '').trim();
@@ -44,15 +39,13 @@ router.post('/cart-checkout', async (req, res) => {
       return res.status(400).json({ error: 'Customer email is required' });
     }
 
-    const result = await createPublicCartCheckout(
-      registrations as CreateRegistrationInput[],
-      total,
-      email,
-      customer_name ? String(customer_name) : undefined,
-      customer_phone ? String(customer_phone) : undefined
-    );
+    const registrationIds: number[] = [];
+    for (const reg of registrations) {
+      const id = await createRegistration(reg as CreateRegistrationInput);
+      registrationIds.push(id);
+    }
 
-    res.status(201).json(result);
+    res.status(201).json({ completed: true, registration_ids: registrationIds });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Checkout failed';
     const status =
@@ -77,8 +70,8 @@ router.post('/portal-checkout', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'At least one participant is required' });
     }
 
-    if (payment_method !== 'bank_transfer' && payment_method !== 'online') {
-      return res.status(400).json({ error: 'Valid payment method is required' });
+    if (payment_method !== 'bank_transfer') {
+      return res.status(400).json({ error: 'Only bank transfer payment is supported' });
     }
 
     const result = await createPortalBookingCheckout(toPortalUser(req), {
@@ -145,15 +138,12 @@ router.post('/individual-checkout', authRequired, async (req, res) => {
       });
     }
 
-    const checkout = await createIndividualPortalCheckout(
-      pending.registrationId,
-      pending.totalAmount,
-      req.user!.email,
-      req.user!.name,
-      pending.workshopTitle
-    );
-
-    res.status(201).json(checkout);
+    return res.status(201).json({
+      completed: true,
+      message: `Successfully registered for "${pending.workshopTitle}". Please transfer AED ${pending.totalAmount.toFixed(2)} to our bank account to confirm your registration.`,
+      registration_id: pending.registrationId,
+      workshop_id: workshopId,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Checkout failed';
     const status =

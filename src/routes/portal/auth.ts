@@ -62,28 +62,67 @@ router.get('/me', authRequired, async (req, res) => {
   }
 });
 
+router.get('/banks', authRequired, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT id, name FROM banks WHERE is_active = 1 ORDER BY name ASC');
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch banks' });
+  }
+});
+
 router.patch('/profile', authRequired, async (req, res) => {
   try {
-    const { name, company } = req.body;
+    const { name, email, company, bank_id } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Name is required' });
+    }
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ error: 'Email is required' });
     }
 
     const role = req.user!.role;
     const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // Verify email uniqueness
+    const existing = await queryOne<{ id: number }>(
+      'SELECT id FROM users WHERE email = ? AND id != ?',
+      [trimmedEmail, req.user!.id]
+    );
+    if (existing) {
+      return res.status(400).json({ error: 'Email is already in use by another account' });
+    }
 
     if (role === 'corporate') {
       const trimmedCompany = typeof company === 'string' ? company.trim() : '';
       if (!trimmedCompany) {
         return res.status(400).json({ error: 'Company name is required' });
       }
-      await pool.execute(`UPDATE users SET name = ?, company = ? WHERE id = ?`, [
+      await pool.execute(`UPDATE users SET name = ?, email = ?, company = ? WHERE id = ?`, [
         trimmedName,
+        trimmedEmail,
         trimmedCompany,
         req.user!.id,
       ]);
+    } else if (role === 'bank') {
+      const bankId = parseInt(String(bank_id), 10);
+      if (Number.isNaN(bankId) || bankId <= 0) {
+        return res.status(400).json({ error: 'Valid Bank selection is required' });
+      }
+      await pool.execute(`UPDATE users SET name = ?, email = ?, bank_id = ? WHERE id = ?`, [
+        trimmedName,
+        trimmedEmail,
+        bankId,
+        req.user!.id,
+      ]);
     } else {
-      await pool.execute(`UPDATE users SET name = ? WHERE id = ?`, [trimmedName, req.user!.id]);
+      await pool.execute(`UPDATE users SET name = ?, email = ? WHERE id = ?`, [
+        trimmedName,
+        trimmedEmail,
+        req.user!.id,
+      ]);
     }
 
     const updated = await fetchUserProfile(req.user!.id);

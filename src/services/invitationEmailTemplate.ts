@@ -82,9 +82,13 @@ export function formatInvitationDuration(startDate: string, endDate: string): st
   return days === 1 ? '(1 Day)' : `(${days} Days)`;
 }
 
+function stripHtmlTags(value: string): string {
+  return value.replace(/<\/?[^>]+(>|$)/g, "");
+}
+
 function qrImageUrl(link: string | null | undefined): string {
-  if (!link) return QR_PLACEHOLDER_URL;
-  return `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(link)}`;
+  const qrData = link && link.trim() ? link : 'https://uasa.ae';
+  return `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
 }
 
 function optionalBlock(label: string, value: string | null | undefined): string {
@@ -137,7 +141,7 @@ export function invitationEmailHtml(data: InvitationEmailData): string {
   const duration = formatInvitationDuration(data.startDate, data.endDate);
   const programLabel = escapeHtml(data.programLabel);
   const workshopTitle = escapeHtml(data.workshopTitle);
-  const subtitle = escapeHtml(data.subtitle);
+  const subtitle = escapeHtml(stripHtmlTags(data.subtitle || ''));
   const timeSlot = escapeHtml(data.timeSlot || 'TBA');
   const bannerUrl = escapeHtml(data.bannerUrl);
   const meetingLink = data.meetingLink || '#';
