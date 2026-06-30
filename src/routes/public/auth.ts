@@ -21,9 +21,12 @@ router.post('/login', async (req, res) => {
       role: UserRole;
       company: string | null;
       bank_id: number | null;
+      phone: string | null;
+      company_address: string | null;
+      company_trn: string | null;
       must_change_password: number;
       is_active: number;
-    }>(`SELECT id, email, password_hash, name, role, company, bank_id, must_change_password, is_active FROM users WHERE email = ?`, [email]);
+    }>(`SELECT id, email, password_hash, name, role, company, bank_id, phone, company_address, company_trn, must_change_password, is_active FROM users WHERE email = ?`, [email]);
 
     if (!user || !user.is_active) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -41,6 +44,9 @@ router.post('/login', async (req, res) => {
       name: user.name,
       company: user.company,
       bank_id: user.bank_id,
+      phone: user.phone,
+      company_address: user.company_address,
+      company_trn: user.company_trn,
       must_change_password: user.must_change_password === 1,
     };
 
@@ -52,6 +58,9 @@ router.post('/login', async (req, res) => {
       must_change_password: profile.must_change_password,
       company: user.company,
       bank_id: user.bank_id,
+      phone: user.phone,
+      company_address: user.company_address,
+      company_trn: user.company_trn,
     });
 
     res.json({ token, user: profile });
@@ -111,8 +120,8 @@ router.post('/register', async (req, res) => {
     const { insert } = await import('../../db/pool.js');
 
     const id = await insert(
-      `INSERT INTO users (email, password_hash, name, company, bank_id, role) VALUES (?, ?, ?, ?, ?, ?)`,
-      [email, hash, name || '', resolvedCompany, resolvedBankId, userRole]
+      `INSERT INTO users (email, password_hash, name, company, bank_id, role, phone, company_address, company_trn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [email, hash, name || '', resolvedCompany, resolvedBankId, userRole, phone || null, company_address || null, company_trn || null]
     );
 
     if (phone || company_address || company_trn) {
@@ -145,6 +154,9 @@ router.post('/register', async (req, res) => {
       name: name || '',
       company: resolvedCompany,
       bank_id: resolvedBankId,
+      phone: phone || null,
+      company_address: company_address || null,
+      company_trn: company_trn || null,
       must_change_password: false,
     };
 

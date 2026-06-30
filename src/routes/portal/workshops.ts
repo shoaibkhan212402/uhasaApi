@@ -28,21 +28,24 @@ router.get('/', portalRequired, async (req, res) => {
       .map((id) => parseInt(id.trim(), 10))
       .filter((id) => Number.isFinite(id) && id > 0);
 
-    let sql = `SELECT id, title, category, cpd_hours, start_date, end_date, time_slot, language, format, price, total_seats, cto_cma_limit, image_url
-       FROM workshops WHERE is_published = 1`;
+    let sql = `SELECT w.id, w.title, w.category, w.cpd_hours, w.start_date, w.end_date, w.time_slot, w.language, w.format, w.price, w.total_seats, w.cto_cma_limit, w.image_url,
+       (SELECT COUNT(*) FROM participants p WHERE p.workshop_id = w.id AND p.status != 'cancelled')
+       + (SELECT COALESCE(SUM(r.total_seats), 0) FROM registrations r WHERE r.workshop_id = w.id AND r.status != 'cancelled')
+       AS registered_seats
+       FROM workshops w WHERE w.is_published = 1`;
     const params: number[] = [];
     const includePast = req.query.include_past === '1' || req.query.include_past === 'true';
 
     if (!includePast) {
-      sql += ` AND end_date >= CURDATE()`;
+      sql += ` AND w.end_date >= CURDATE()`;
     }
 
     if (ids.length > 0) {
-      sql += ` AND id IN (${ids.map(() => '?').join(',')})`;
+      sql += ` AND w.id IN (${ids.map(() => '?').join(',')})`;
       params.push(...ids);
     }
 
-    sql += ` ORDER BY start_date ASC`;
+    sql += ` ORDER BY w.start_date ASC`;
     const workshops = await query(sql, params);
     res.json(workshops);
   } catch (err) {

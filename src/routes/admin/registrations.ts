@@ -21,7 +21,8 @@ router.get('/', async (req, res) => {
   try {
     const { workshop_id, status, search, registration_type } = req.query;
     let sql = `
-      SELECT r.*, w.title as workshop_title
+      SELECT r.*, w.title as workshop_title,
+             (SELECT i.id FROM invoices i WHERE i.registration_id = r.id ORDER BY i.id DESC LIMIT 1) as invoice_id
       FROM registrations r
       LEFT JOIN workshops w ON w.id = r.workshop_id
       WHERE 1=1

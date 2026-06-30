@@ -879,19 +879,40 @@ export async function registerWorkshopBooking(
     id: number;
     title: string;
     price: number;
+    total_seats: number;
     start_date: string;
     end_date: string;
     time_slot: string;
     format: string;
     cpd_hours: number;
   }>(
-    `SELECT id, title, price, start_date, end_date, time_slot, format, cpd_hours
+    `SELECT id, title, price, total_seats, start_date, end_date, time_slot, format, cpd_hours
      FROM workshops WHERE id = ? AND is_published = 1 AND end_date >= CURDATE()`,
     [input.workshop_id]
   );
 
   if (!workshop) {
     throw new Error('Workshop not found or no longer available');
+  }
+
+  // Pre-check: ensure enough seats for the entire batch before starting enrollment
+  const portalCount = await queryOne<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM participants WHERE workshop_id = ? AND status != 'cancelled'`,
+    [input.workshop_id]
+  );
+  const regCount = await queryOne<{ total: number }>(
+    `SELECT COALESCE(SUM(total_seats), 0) as total FROM registrations WHERE workshop_id = ? AND status != 'cancelled'`,
+    [input.workshop_id]
+  );
+  const totalEnrolled = (portalCount?.cnt || 0) + (regCount?.total || 0);
+  const seatsLeft = workshop.total_seats - totalEnrolled;
+  if (seatsLeft <= 0) {
+    throw new Error('No seats available for this workshop');
+  }
+  if (input.participants.length > seatsLeft) {
+    throw new Error(
+      `Only ${seatsLeft} seat${seatsLeft !== 1 ? 's' : ''} available. You selected ${input.participants.length} participant${input.participants.length !== 1 ? 's' : ''}.`
+    );
   }
 
   const existingCount = await getParticipantCountForWorkshop(user.id, input.workshop_id);

@@ -12,13 +12,16 @@ type DbUser = {
   role: string;
   company: string | null;
   bank_id: number | null;
+  phone: string | null;
+  company_address: string | null;
+  company_trn: string | null;
   must_change_password: number;
   bank_name?: string | null;
 };
 
 async function fetchUserProfile(userId: number): Promise<DbUser | null> {
   return queryOne<DbUser>(
-    `SELECT u.id, u.email, u.name, u.role, u.company, u.bank_id, u.must_change_password, b.name AS bank_name
+    `SELECT u.id, u.email, u.name, u.role, u.company, u.bank_id, u.phone, u.company_address, u.company_trn, u.must_change_password, b.name AS bank_name
      FROM users u
      LEFT JOIN banks b ON b.id = u.bank_id
      WHERE u.id = ?`,
@@ -34,6 +37,9 @@ function toProfileResponse(user: DbUser) {
     role: user.role,
     company: user.company,
     bank_id: user.bank_id,
+    phone: user.phone ?? null,
+    company_address: user.company_address ?? null,
+    company_trn: user.company_trn ?? null,
     bank_name: user.bank_name ?? null,
     must_change_password: user.must_change_password === 1,
   };
@@ -48,6 +54,9 @@ function signProfileToken(user: DbUser) {
     must_change_password: user.must_change_password === 1,
     company: user.company,
     bank_id: user.bank_id,
+    phone: user.phone,
+    company_address: user.company_address,
+    company_trn: user.company_trn,
   });
 }
 
@@ -74,7 +83,7 @@ router.get('/banks', authRequired, async (req, res) => {
 
 router.patch('/profile', authRequired, async (req, res) => {
   try {
-    const { name, email, company, bank_id } = req.body;
+    const { name, email, company, bank_id, phone, company_address, company_trn } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Name is required' });
     }
@@ -85,6 +94,9 @@ router.patch('/profile', authRequired, async (req, res) => {
     const role = req.user!.role;
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
+    const cleanPhone = typeof phone === 'string' ? phone.trim() : null;
+    const cleanAddress = typeof company_address === 'string' ? company_address.trim() : null;
+    const cleanTrn = typeof company_trn === 'string' ? company_trn.trim() : null;
 
     // Verify email uniqueness
     const existing = await queryOne<{ id: number }>(
@@ -100,10 +112,13 @@ router.patch('/profile', authRequired, async (req, res) => {
       if (!trimmedCompany) {
         return res.status(400).json({ error: 'Company name is required' });
       }
-      await pool.execute(`UPDATE users SET name = ?, email = ?, company = ? WHERE id = ?`, [
+      await pool.execute(`UPDATE users SET name = ?, email = ?, company = ?, phone = ?, company_address = ?, company_trn = ? WHERE id = ?`, [
         trimmedName,
         trimmedEmail,
         trimmedCompany,
+        cleanPhone,
+        cleanAddress,
+        cleanTrn,
         req.user!.id,
       ]);
     } else if (role === 'bank') {
@@ -111,16 +126,22 @@ router.patch('/profile', authRequired, async (req, res) => {
       if (Number.isNaN(bankId) || bankId <= 0) {
         return res.status(400).json({ error: 'Valid Bank selection is required' });
       }
-      await pool.execute(`UPDATE users SET name = ?, email = ?, bank_id = ? WHERE id = ?`, [
+      await pool.execute(`UPDATE users SET name = ?, email = ?, bank_id = ?, phone = ?, company_address = ?, company_trn = ? WHERE id = ?`, [
         trimmedName,
         trimmedEmail,
         bankId,
+        cleanPhone,
+        cleanAddress,
+        cleanTrn,
         req.user!.id,
       ]);
     } else {
-      await pool.execute(`UPDATE users SET name = ?, email = ? WHERE id = ?`, [
+      await pool.execute(`UPDATE users SET name = ?, email = ?, phone = ?, company_address = ?, company_trn = ? WHERE id = ?`, [
         trimmedName,
         trimmedEmail,
+        cleanPhone,
+        cleanAddress,
+        cleanTrn,
         req.user!.id,
       ]);
     }
