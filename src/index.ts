@@ -93,15 +93,15 @@ const corsOptions: cors.CorsOptions = {
   origin: config.corsAllowAll
     ? true
     : (origin, callback) => {
-        if (!origin) {
-          return callback(null, true);
-        }
-        if (config.corsOrigins.includes(origin)) {
-          return callback(null, true);
-        }
-        console.error(`CORS Blocked: ${origin}`);
-        return callback(null, false);
-      },
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (config.corsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      console.error(`CORS Blocked: ${origin}`);
+      return callback(null, false);
+    },
 
   credentials: true,
 
@@ -125,6 +125,7 @@ const corsOptions: cors.CorsOptions = {
   exposedHeaders: [
     'Content-Length',
     'Content-Type',
+    'Content-Disposition',
   ],
 
   optionsSuccessStatus: 204,
