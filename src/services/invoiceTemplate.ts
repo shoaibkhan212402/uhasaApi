@@ -63,6 +63,15 @@ export function formatWorkshopDateRange(startDate: string, endDate: string): str
   return `${startText} & ${endText}`;
 }
 
+export interface InvoiceLineItem {
+  workshopTitle: string;
+  workshopFormat: string;
+  workshopDates: string;
+  participantCount: number;
+  unitPrice: number;
+  amount: number;
+}
+
 export interface InvoiceData {
   invoiceNumber: string;
   billedTo: string;
@@ -78,20 +87,39 @@ export interface InvoiceData {
   subtotal: number;
   vatAmount: number;
   totalAmount: number;
+  lineItems?: InvoiceLineItem[];
 }
 
 export function invoiceHtml(data: InvoiceData): string {
-  const title = escapeHtml(data.workshopTitle);
-  const format = escapeHtml(data.workshopFormat || 'Online');
-  const dates = escapeHtml(data.workshopDates);
-  const description = `Fees for &ldquo;${title}&rdquo; ${format} workshop -UAE, ${dates}`;
-  const participantLine = `Participant: ${data.participantCount}`;
-  const qty = data.participantCount;
-  const rate = data.unitPrice.toFixed(0);
-  const lineAmount = data.subtotal.toFixed(0);
   const subtotal = data.subtotal.toFixed(2);
   const vat = data.vatAmount.toFixed(2);
   const total = data.totalAmount.toFixed(2);
+
+  const itemRows = data.lineItems && data.lineItems.length > 0
+    ? data.lineItems.map((item) => {
+        const title = escapeHtml(item.workshopTitle);
+        const format = escapeHtml(item.workshopFormat || 'Online');
+        const dates = escapeHtml(item.workshopDates);
+        const desc = `Fees for &ldquo;${title}&rdquo; ${format} workshop -UAE, ${dates}`;
+        return `<tr>
+          <td><div>${desc}</div><div class="item-sub">Participant: ${item.participantCount}</div></td>
+          <td class="num">${item.participantCount}</td>
+          <td class="num">${item.unitPrice.toFixed(0)}</td>
+          <td class="amount">${item.amount.toFixed(0)}</td>
+        </tr>`;
+      }).join('\n')
+    : (() => {
+        const title = escapeHtml(data.workshopTitle);
+        const format = escapeHtml(data.workshopFormat || 'Online');
+        const dates = escapeHtml(data.workshopDates);
+        const description = `Fees for &ldquo;${title}&rdquo; ${format} workshop -UAE, ${dates}`;
+        return `<tr>
+          <td><div>${description}</div><div class="item-sub">Participant: ${data.participantCount}</div></td>
+          <td class="num">${data.participantCount}</td>
+          <td class="num">${data.unitPrice.toFixed(0)}</td>
+          <td class="amount">${data.subtotal.toFixed(0)}</td>
+        </tr>`;
+      })();
 
   const billedTo = escapeHtml(data.billedTo || '');
   const billedAddress = escapeHtml(data.billedAddress || '');
@@ -320,15 +348,7 @@ export function invoiceHtml(data: InvoiceData): string {
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td>
-            <div>${description}</div>
-            <div class="item-sub">${participantLine}</div>
-          </td>
-          <td class="num">${qty}</td>
-          <td class="num">${rate}</td>
-          <td class="amount">${lineAmount}</td>
-        </tr>
+        ${itemRows}
       </tbody>
     </table>
 
@@ -381,6 +401,7 @@ export function buildInvoiceData(input: {
   subtotal?: number;
   vatAmount?: number;
   totalAmount?: number;
+  lineItems?: InvoiceLineItem[];
 }): InvoiceData {
   const participantCount = Math.max(1, input.participantCount);
   const subtotal = input.subtotal !== undefined ? input.subtotal : Math.round(input.unitPrice * participantCount * 100) / 100;
@@ -402,5 +423,6 @@ export function buildInvoiceData(input: {
     subtotal,
     vatAmount,
     totalAmount,
+    lineItems: input.lineItems,
   };
 }

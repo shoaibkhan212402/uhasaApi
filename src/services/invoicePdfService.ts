@@ -199,62 +199,75 @@ export function invoiceDataToPdf(data: InvoiceData): Promise<Buffer> {
 
     y += BILLING_H;
 
-    // ── 3. Items table (Proportional Columns & Single Border Grid) ───────────
-    const C_DESC = LW;                         // 58% Description (perfect vertical alignment)
-    const C_QTY  = Math.round(PW * 0.12);      // 12% Quantity
-    const C_RATE = Math.round(PW * 0.14);      // 14% Rate (AED)
-    const C_AMT  = PW - C_DESC - C_QTY - C_RATE; // 16% Amount (AED)
-
+    // ── 3. Items table ───────────────────────────────────────────────────────
+    const C_DESC = LW;
+    const C_QTY  = Math.round(PW * 0.12);
+    const C_RATE = Math.round(PW * 0.14);
+    const C_AMT  = PW - C_DESC - C_QTY - C_RATE;
     const ITEMS_HEAD_H = 24;
-
-    const description = `Fees for "${data.workshopTitle}" ${data.workshopFormat || 'Online'} workshop -UAE, ${data.workshopDates}`;
-    const participantLine = `Participant: ${data.participantCount}`;
-
     const descW = C_DESC - PAD * 2;
-    const descH = strH(doc, description, descW);
-    const partH = strH(doc, participantLine, descW);
-    const ITEM_ROW_H = Math.max(56, PAD + descH + 4 + partH + PAD);
 
-    const TOTAL_TABLE_H = ITEMS_HEAD_H + ITEM_ROW_H;
+    // Normalise: use lineItems when available, fall back to single-item format
+    const lineItems = data.lineItems && data.lineItems.length > 0
+      ? data.lineItems
+      : [{
+          workshopTitle: data.workshopTitle,
+          workshopFormat: data.workshopFormat || 'Online',
+          workshopDates: data.workshopDates,
+          participantCount: data.participantCount,
+          unitPrice: data.unitPrice,
+          amount: data.subtotal,
+        }];
 
-    // Fill table headers area with light green
+    // Pre-calculate row heights (each row height is content-driven)
+    const rowHeights = lineItems.map((item) => {
+      const desc = `Fees for "${item.workshopTitle}" ${item.workshopFormat || 'Online'} workshop -UAE, ${item.workshopDates}`;
+      const partLine = `Participant: ${item.participantCount}`;
+      const dh = strH(doc, desc, descW);
+      const ph = strH(doc, partLine, descW);
+      return Math.max(52, PAD + dh + 4 + ph + PAD);
+    });
+    const totalItemsH = rowHeights.reduce((s, h) => s + h, 0);
+    const TOTAL_TABLE_H = ITEMS_HEAD_H + totalItemsH;
+
+    // Table outer border + column lines (span full height)
     fillOnly(doc, MARGIN, y, PW, ITEMS_HEAD_H, GREEN_COLOR);
-
-    // Draw single outer boundary around the entire table (prevents double border at junction)
     border(doc, MARGIN, y, PW, TOTAL_TABLE_H);
-
-    // Draw horizontal separator between header and row
     hLine(doc, MARGIN, y + ITEMS_HEAD_H, PW);
-
-    // Draw continuous vertical column separators (removes individual cell borders)
     vLine(doc, MARGIN + C_DESC, y, TOTAL_TABLE_H);
     vLine(doc, MARGIN + C_DESC + C_QTY, y, TOTAL_TABLE_H);
     vLine(doc, MARGIN + C_DESC + C_QTY + C_RATE, y, TOTAL_TABLE_H);
 
-    // Render header texts
+    // Header row
     textH(doc, FS, true);
     const hty = y + (ITEMS_HEAD_H - FS) / 2;
-    doc.text('Item & Description',  MARGIN + PAD,                             hty, { width: C_DESC - PAD * 2, align: 'center', lineBreak: false });
-    doc.text('Quantity',            MARGIN + C_DESC,                          hty, { width: C_QTY,  align: 'center', lineBreak: false });
-    doc.text('Rate (AED)',          MARGIN + C_DESC + C_QTY,                  hty, { width: C_RATE, align: 'center', lineBreak: false });
-    doc.text('Amount (AED)',        MARGIN + C_DESC + C_QTY + C_RATE,         hty, { width: C_AMT,  align: 'center', lineBreak: false });
+    doc.text('Item & Description', MARGIN + PAD, hty, { width: C_DESC - PAD * 2, lineBreak: false });
+    doc.text('Quantity',           MARGIN + C_DESC, hty, { width: C_QTY, align: 'center', lineBreak: false });
+    doc.text('Rate (AED)',         MARGIN + C_DESC + C_QTY, hty, { width: C_RATE, align: 'center', lineBreak: false });
+    doc.text('Amount (AED)',       MARGIN + C_DESC + C_QTY + C_RATE, hty, { width: C_AMT, align: 'center', lineBreak: false });
 
-    // Render row texts
-    const rowY = y + ITEMS_HEAD_H;
-    textH(doc, FS);
-    doc.text(description, MARGIN + PAD, rowY + PAD, { width: descW });
+    // Item rows
+    let ry = y + ITEMS_HEAD_H;
+    lineItems.forEach((item, idx) => {
+      const rowH = rowHeights[idx];
+      const desc = `Fees for "${item.workshopTitle}" ${item.workshopFormat || 'Online'} workshop -UAE, ${item.workshopDates}`;
+      const partLine = `Participant: ${item.participantCount}`;
+      const dh = strH(doc, desc, descW);
 
-    // Participant count line below description
-    doc.text(participantLine, MARGIN + PAD, rowY + PAD + descH + 4, { width: descW });
+      if (idx > 0) hLine(doc, MARGIN, ry, PW);
 
-    // Quantity, rate, amount — vertically centered in the row
-    const vcY = rowY + ITEM_ROW_H / 2 - FS / 2;
+      textH(doc, FS);
+      doc.text(desc, MARGIN + PAD, ry + PAD, { width: descW });
+      doc.text(partLine, MARGIN + PAD, ry + PAD + dh + 4, { width: descW });
 
-    doc.text(String(data.participantCount), MARGIN + C_DESC, vcY, { width: C_QTY, align: 'center', lineBreak: false });
-    doc.text(data.unitPrice.toFixed(2), MARGIN + C_DESC + C_QTY, vcY, { width: C_RATE, align: 'center', lineBreak: false });
+      const vcY = ry + rowH / 2 - FS / 2;
+      doc.text(String(item.participantCount), MARGIN + C_DESC, vcY, { width: C_QTY, align: 'center', lineBreak: false });
+      doc.text(item.unitPrice.toFixed(0), MARGIN + C_DESC + C_QTY, vcY, { width: C_RATE, align: 'center', lineBreak: false });
+      textH(doc, FS, true);
+      doc.text(item.amount.toFixed(0), MARGIN + C_DESC + C_QTY + C_RATE, vcY, { width: C_AMT, align: 'center', lineBreak: false });
 
-    textH(doc, FS, true);
-    doc.text(data.subtotal.toFixed(2), MARGIN + C_DESC + C_QTY + C_RATE, vcY, { width: C_AMT, align: 'center', lineBreak: false });
+      ry += rowH;
+    });
 
     y += TOTAL_TABLE_H;
 

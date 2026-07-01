@@ -3,6 +3,7 @@ import { query } from '../../db/pool.js';
 import { portalRequired } from '../../middleware/auth.js';
 import {
   registerWorkshopBooking,
+  registerMultiWorkshopBooking,
   type PortalUser,
 } from '../../services/participantService.js';
 
@@ -74,6 +75,41 @@ router.post('/:workshopId/register', portalRequired, async (req, res) => {
     const result = await registerWorkshopBooking(toPortalUser(req), {
       workshop_id: workshopId,
       participants,
+      payment_method,
+      terms_accepted: Boolean(terms_accepted),
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Registration failed';
+    const status =
+      message.includes('terms') ||
+      message.includes('participant') ||
+      message.includes('limit') ||
+      message.includes('seats') ||
+      message.includes('not found') ||
+      message.includes('already')
+        ? 400
+        : 500;
+    console.error(err);
+    res.status(status).json({ error: message });
+  }
+});
+
+router.post('/batch-register', portalRequired, async (req, res) => {
+  try {
+    const { workshops, payment_method, terms_accepted } = req.body;
+
+    if (!Array.isArray(workshops) || workshops.length === 0) {
+      return res.status(400).json({ error: 'At least one workshop is required' });
+    }
+
+    if (payment_method !== 'bank_transfer') {
+      return res.status(400).json({ error: 'Only bank transfer payment is allowed' });
+    }
+
+    const result = await registerMultiWorkshopBooking(toPortalUser(req), {
+      workshops,
       payment_method,
       terms_accepted: Boolean(terms_accepted),
     });

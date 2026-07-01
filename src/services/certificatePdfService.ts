@@ -29,19 +29,60 @@ function noteText(data: CertificateData): string {
 }
 
 function drawBubbles(doc: PdfDoc, pageH: number) {
-  const circles: [number, number, number][] = [
-    [12, 18, 28], [8, 42, 18], [18, 68, 36], [6, 95, 14], [22, 120, 42],
-    [10, 148, 22], [16, 175, 32], [8, 205, 16], [20, 230, 38], [12, 260, 24],
-    [6, 285, 12], [18, 310, 30], [10, 340, 20], [14, 365, 26], [8, 395, 14],
-    [22, 420, 40], [10, 450, 18], [16, 475, 34], [8, 505, 12], [20, 530, 28],
-    [12, 560, 22], [8, 585, 16],
+  const circles = [
+    { x: 10, y: 15, r: 8 },
+    { x: 22, y: 40, r: 4 },
+    { x: 48, y: 18, r: 7 },
+    { x: 14, y: 70, r: 12 },
+    { x: 35, y: 85, r: 6 },
+    { x: 8,  y: 110, r: 9 },
+    { x: 25, y: 130, r: 15 },
+    { x: 50, y: 115, r: 5 },
+    { x: 12, y: 160, r: 11 },
+    { x: 42, y: 175, r: 7 },
+    { x: 20, y: 200, r: 13 },
+    { x: 34, y: 225, r: 5 },
+    { x: 10, y: 250, r: 9 },
+    { x: 55, y: 240, r: 6 },
+    { x: 28, y: 275, r: 14 },
+    { x: 15, y: 310, r: 10 },
+    { x: 45, y: 320, r: 4 },
+    { x: 8,  y: 350, r: 7 },
+    { x: 26, y: 370, r: 16 },
+    { x: 52, y: 385, r: 6 },
+    { x: 18, y: 410, r: 12 },
+    { x: 38, y: 430, r: 5 },
+    { x: 12, y: 460, r: 8 },
+    { x: 58, y: 465, r: 7 },
+    { x: 28, y: 490, r: 13 },
+    { x: 50, y: 520, r: 10 },
+    { x: 75, y: 505, r: 6 },
+    { x: 90, y: 535, r: 14 },
+    { x: 115, y: 520, r: 5 },
+    { x: 130, y: 550, r: 11 },
+    { x: 155, y: 535, r: 7 },
+    { x: 180, y: 565, r: 15 },
+    { x: 210, y: 550, r: 8 },
+    { x: 240, y: 575, r: 12 },
+    { x: 275, y: 560, r: 6 },
+    { x: 310, y: 580, r: 9 },
+    { x: 350, y: 570, r: 14 },
+    { x: 390, y: 585, r: 5 },
+    { x: 430, y: 575, r: 11 },
+    { x: 480, y: 590, r: 7 },
+    { x: 530, y: 580, r: 13 },
+    { x: 580, y: 595, r: 6 },
+    { x: 640, y: 585, r: 10 },
+    { x: 700, y: 590, r: 5 },
+    { x: 760, y: 580, r: 8 },
+    { x: 820, y: 595, r: 12 }
   ];
   const scale = pageH / 595;
   doc.save();
   doc.opacity(0.55);
-  for (const [cx, cy, r] of circles) {
-    if (cy * scale > pageH) continue;
-    doc.circle(cx, cy * scale, r * scale).fill(CERTIFICATE_BUBBLE);
+  for (const {x, y, r} of circles) {
+    if (y * scale > pageH) continue;
+    doc.circle(x, y * scale, r * scale).fill(CERTIFICATE_BUBBLE);
   }
   doc.opacity(1);
   doc.restore();
@@ -80,35 +121,37 @@ export function certificateDataToPdf(data: CertificateData): Promise<Buffer> {
     drawBubbles(doc, h);
 
     try {
-      placeLogo(doc, UASA_LOGO_FILE, contentLeft, 22, 62, 260);
-      placeLogo(doc, CMA_LOGO_FILE, w - 36 - 240, 18, 68, 240);
+      placeLogo(doc, UASA_LOGO_FILE, contentLeft, 22, 55, 210);
+      placeLogo(doc, CMA_LOGO_FILE, w - 36 - 170, 18, 62, 170);
     } catch (err) {
       console.warn('Certificate logo missing for PDF:', err);
     }
 
-    let y = 108;
+    // Title starts at y = 120 (40pt gap below logos)
+    let y = 120;
 
-    doc.font('Times-Italic').fontSize(38).fillColor(CERTIFICATE_GREEN);
+    doc.font('Times-Italic').fontSize(48).fillColor('#35532f');
     doc.text('Certificate of Participation', contentLeft, y, {
       width: contentWidth,
       align: 'center',
     });
-    y += 54;
+    y += 48 + 27; // 27pt gap below title text to keep intro start at y = 195
 
     doc.font('Times-Roman').fontSize(14).fillColor(CERTIFICATE_BLACK);
     doc.text('The Capital Market Authority hereby certifies that:', contentLeft, y, {
       width: contentWidth,
       align: 'center',
     });
-    y += 30;
+    y += 14 + 36; // 36pt gap below intro, centering recipient name vertically
 
-    doc.font('Times-Bold').fontSize(26).fillColor(CERTIFICATE_BLACK);
+    doc.font('Times-Bold').fontSize(28).fillColor(CERTIFICATE_BLACK);
     doc.text(data.participantName.toUpperCase(), contentLeft, y, {
       width: contentWidth,
       align: 'center',
-      characterSpacing: 0.8,
+      characterSpacing: 1.0,
     });
-    y += doc.heightOfString(data.participantName.toUpperCase(), { width: contentWidth }) + 16;
+    const nameH = doc.heightOfString(data.participantName.toUpperCase(), { width: contentWidth, characterSpacing: 1.0 });
+    y += nameH + 40; // 40pt gap below recipient name
 
     const details = [
       'Has attended the online training program organized in cooperation with',
@@ -121,22 +164,25 @@ export function certificateDataToPdf(data: CertificateData): Promise<Buffer> {
       y += 20;
     }
 
-    y += 6;
-    doc.font('Times-Bold').fontSize(22).fillColor(CERTIFICATE_BLACK);
-    doc.text(`\u201C${data.workshopTitle}\u201D`, contentLeft, y, {
+    y += 21; // 21pt gap from details block to course title
+    doc.font('Times-Bold').fontSize(21).fillColor(CERTIFICATE_BLACK);
+    const quoteTitle = `\u201C${data.workshopTitle}\u201D`;
+    doc.text(quoteTitle, contentLeft, y, {
       width: contentWidth,
       align: 'center',
+      lineGap: 8,
     });
-    y += doc.heightOfString(`\u201C${data.workshopTitle}\u201D`, { width: contentWidth }) + 14;
+    const titleH = doc.heightOfString(quoteTitle, { width: contentWidth, lineGap: 8 });
+    y += titleH + 28; // 28pt gap above date
 
-    doc.font('Times-Bold').fontSize(15).fillColor(CERTIFICATE_BLACK);
+    doc.font('Times-Bold').fontSize(16).fillColor(CERTIFICATE_BLACK);
     doc.text(data.workshopDates, contentLeft, y, { width: contentWidth, align: 'center' });
-    y += 22;
+    y += 16 + 14; // 14pt gap below date
 
     const note = noteText(data);
     if (note) {
-      doc.font('Times-Roman').fontSize(12).fillColor(CERTIFICATE_BLACK);
-      doc.text(note, contentLeft, y, { width: contentWidth, align: 'center' });
+      doc.font('Times-Roman').fontSize(11).fillColor(CERTIFICATE_BLACK);
+      doc.text(note, contentLeft, y, { width: contentWidth, align: 'center', lineGap: 3.5 });
     }
 
     const ref = `Ref: ${data.referenceNumber}`;

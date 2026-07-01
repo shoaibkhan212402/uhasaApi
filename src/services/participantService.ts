@@ -158,7 +158,7 @@ export async function addParticipant(user: PortalUser, input: AddParticipantInpu
   );
 
   if (shouldSendInvoice(user.role, bankAutoInvoice) && participantPrice > 0) {
-    await createAndSendInvoice({
+    void createAndSendInvoice({
       userId: user.id,
       workshopId: workshop.id,
       participantId,
@@ -166,10 +166,10 @@ export async function addParticipant(user: PortalUser, input: AddParticipantInpu
       recipientName: orgName,
       workshopTitle: workshop.title,
       price: participantPrice,
-    });
+    }).catch(console.error);
   }
 
-  await sendEmail({
+  void sendEmail({
     to: input.email,
     subject: `Registration Confirmed — ${workshop.title}`,
     html: confirmationEmailHtml({
@@ -181,9 +181,8 @@ export async function addParticipant(user: PortalUser, input: AddParticipantInpu
     }),
     templateType: 'confirmation',
     participantId,
-  });
-
-  await pool.execute(`UPDATE participants SET confirmation_sent = 1 WHERE id = ?`, [participantId]);
+  }).then(() => pool.execute(`UPDATE participants SET confirmation_sent = 1 WHERE id = ?`, [participantId]))
+    .catch(console.error);
 
   return participantId;
 }
@@ -821,6 +820,22 @@ export async function listParticipantRoster(
 
 export type PaymentMethod = 'bank_transfer' | 'online';
 
+export interface MultiWorkshopRegistrationInput {
+  workshops: Array<{
+    workshop_id: number;
+    participants: AddParticipantInput[];
+  }>;
+  payment_method: PaymentMethod;
+  terms_accepted: boolean;
+}
+
+export interface MultiWorkshopRegistrationResult {
+  combined_invoice_number: string | null;
+  combined_order_id: string;
+  combined_total: number;
+  workshops: WorkshopRegistrationResult[];
+}
+
 export interface WorkshopRegistrationInput {
   workshop_id: number;
   participants: AddParticipantInput[];
@@ -1024,5 +1039,310 @@ export async function registerWorkshopBooking(
       invoice_status: row.invoice_status,
       total_amount: row.total_amount != null ? Number(row.total_amount) : null,
     })),
+  };
+}
+
+// ─── Batch multi-workshop registration with ONE combined invoice ─────────────
+
+async function insertParticipantOnly(
+  user: PortalUser,
+  input: AddParticipantInput & { workshop_id: number },
+  workshop: { id: number; title: string; price: number; total_seats: number; cto_cma_limit: number; cma_limit: number | null; hct_limit: number | null; start_date: string; end_date: string; time_slot: string }
+): Promise<number> {
+  const lockCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const workshopStart = new Date(String(workshop.start_date));
+  if (workshopStart <= lockCutoff) {
+    throw new Error('Registration is locked within 24 hours of the workshop start time.');
+  }
+
+  const existing = await queryOne(
+    `SELECT id FROM participants WHERE user_id = ? AND workshop_id = ? AND email = ? AND status != 'cancelled'`,
+    [user.id, input.workshop_id, input.email]
+  );
+  if (existing) {
+    throw new Error('This participant is already registered for this workshop');
+  }
+
+  const enrolledCountRow = await queryOne<{ count: number }>(
+    `SELECT COUNT(*) as count FROM participants WHERE user_id = ? AND workshop_id = ? AND status != 'cancelled'`,
+    [user.id, input.workshop_id]
+  );
+  const enrolledCount = enrolledCountRow?.count || 0;
+
+  if (user.role === 'cto') {
+    const limit = workshop.hct_limit !== null ? workshop.hct_limit : (workshop.cto_cma_limit ?? 3);
+    if (enrolledCount >= limit) throw new Error(`HCT registration limit reached (${limit} participants per workshop)`);
+  } else if (user.role === 'cma') {
+    const limit = workshop.cma_limit !== null ? workshop.cma_limit : (workshop.cto_cma_limit ?? 3);
+    if (enrolledCount >= limit) throw new Error(`CMA registration limit reached (${limit} participants per workshop)`);
+  }
+
+  const participantId = await insert(
+    `INSERT INTO participants (user_id, workshop_id, full_name, email, phone, person_id, job_position, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed')`,
+    [user.id, input.workshop_id, input.full_name, input.email, input.phone || null, input.person_id || null, input.job_position || null]
+  );
+
+  // Fire-and-forget: confirmation email — DB write already done, don't block on SMTP
+  const orgName = user.company || user.name;
+  void sendEmail({
+    to: input.email,
+    subject: `Registration Confirmed — ${workshop.title}`,
+    html: confirmationEmailHtml({
+      participantName: input.full_name,
+      workshopTitle: workshop.title,
+      startDate: String(workshop.start_date).slice(0, 10),
+      timeSlot: workshop.time_slot,
+      organizationName: orgName,
+    }),
+    templateType: 'confirmation',
+    participantId,
+  }).then(() => pool.execute(`UPDATE participants SET confirmation_sent = 1 WHERE id = ?`, [participantId]))
+    .catch(console.error);
+
+  return participantId;
+}
+
+export async function registerMultiWorkshopBooking(
+  user: PortalUser,
+  input: MultiWorkshopRegistrationInput
+): Promise<MultiWorkshopRegistrationResult> {
+  if (!input.terms_accepted) throw new Error('You must accept the terms and conditions');
+  if (!input.workshops.length) throw new Error('At least one workshop is required');
+
+  const { generateInvoiceNumber, formatOrderId } = await import('./orderReference.js');
+  const { buildInvoiceData, formatWorkshopDateRange } = await import('./invoiceTemplate.js');
+  const { buildInvoicePdfAttachment } = await import('./invoicePdfService.js');
+  const { invoiceEmailHtml } = await import('./emailService.js');
+  const { shouldSendInvoice } = await import('./invoiceService.js');
+
+  let bankAutoInvoice: boolean | null = true;
+  if (user.role === 'bank' && user.bank_id) {
+    const bank = await queryOne<{ auto_invoice: number }>(
+      `SELECT auto_invoice FROM banks WHERE id = ? AND is_active = 1`, [user.bank_id]
+    );
+    bankAutoInvoice = bank ? bank.auto_invoice === 1 : true;
+  }
+  const doInvoice = shouldSendInvoice(user.role, bankAutoInvoice);
+  const isFreeRole = user.role === 'cto' || user.role === 'cma';
+
+  // ── Step 1: Validate all workshops + collect workshop details ──────────────
+  type WsInfo = {
+    id: number; title: string; price: number; total_seats: number;
+    cto_cma_limit: number; cma_limit: number | null; hct_limit: number | null;
+    start_date: string; end_date: string; time_slot: string; format: string; cpd_hours: number;
+  };
+
+  const workshopInfos: WsInfo[] = [];
+  for (const ws of input.workshops) {
+    const w = await queryOne<WsInfo>(
+      `SELECT id, title, price, total_seats, cto_cma_limit, cma_limit, hct_limit,
+              start_date, end_date, time_slot, format, cpd_hours
+       FROM workshops WHERE id = ? AND is_published = 1 AND end_date >= CURDATE()`,
+      [ws.workshop_id]
+    );
+    if (!w) throw new Error(`Workshop ${ws.workshop_id} not found or no longer available`);
+
+    const portalCnt = await queryOne<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM participants WHERE workshop_id = ? AND status != 'cancelled'`, [ws.workshop_id]);
+    const regCnt = await queryOne<{ total: number }>(`SELECT COALESCE(SUM(total_seats),0) as total FROM registrations WHERE workshop_id = ? AND status != 'cancelled'`, [ws.workshop_id]);
+    const enrolled = (portalCnt?.cnt || 0) + (regCnt?.total || 0);
+    const seatsLeft = w.total_seats - enrolled;
+    if (seatsLeft <= 0) throw new Error(`No seats available for "${w.title}"`);
+    if (ws.participants.length > seatsLeft) throw new Error(`Only ${seatsLeft} seat(s) left for "${w.title}"`);
+
+    workshopInfos.push(w);
+  }
+
+  // ── Step 2: Insert all participants (no per-participant invoicing) ─────────
+  type EnrolledGroup = { workshop: WsInfo; participantIds: number[]; existingCount: number; failed: { email: string; error: string }[] };
+  const enrolledGroups: EnrolledGroup[] = [];
+  const allParticipantIds: number[] = [];
+
+  for (let i = 0; i < input.workshops.length; i++) {
+    const ws = input.workshops[i];
+    const wInfo = workshopInfos[i];
+    const existingCount = await getParticipantCountForWorkshop(user.id, ws.workshop_id);
+    const participantIds: number[] = [];
+    const failed: { email: string; error: string }[] = [];
+
+    for (const p of ws.participants) {
+      try {
+        const id = await insertParticipantOnly(user, { ...p, workshop_id: ws.workshop_id }, wInfo);
+        participantIds.push(id);
+        allParticipantIds.push(id);
+      } catch (err) {
+        failed.push({ email: p.email, error: err instanceof Error ? err.message : 'Failed' });
+      }
+    }
+    if (participantIds.length === 0 && failed.length > 0) {
+      throw new Error(failed[0].error);
+    }
+    enrolledGroups.push({ workshop: wInfo, participantIds, existingCount, failed });
+  }
+
+  // ── Step 3: Create one combined invoice ───────────────────────────────────
+  let combinedInvoiceNumber: string | null = null;
+  let combinedOrderId = allParticipantIds.length > 0 ? formatOrderId(allParticipantIds[0]) : 'ORD-0';
+
+  const lineItems = enrolledGroups
+    .filter(g => g.participantIds.length > 0 && !isFreeRole)
+    .map(g => {
+      const unitPrice = Number(g.workshop.price);
+      const amount = calculateEnrollmentSubtotal(unitPrice, g.existingCount, g.participantIds.length, user.role);
+      return {
+        workshopTitle: g.workshop.title,
+        workshopFormat: g.workshop.format || 'Online',
+        workshopDates: formatWorkshopDateRange(String(g.workshop.start_date), String(g.workshop.end_date)),
+        participantCount: g.participantIds.length,
+        unitPrice,
+        amount,
+      };
+    });
+
+  const combinedSubtotal = lineItems.reduce((s, li) => s + li.amount, 0);
+  const combinedVat = Math.round(combinedSubtotal * 0.05 * 100) / 100;
+  const combinedTotal = Math.round((combinedSubtotal + combinedVat) * 100) / 100;
+
+  if (doInvoice && combinedSubtotal > 0 && allParticipantIds.length > 0) {
+    // Resolve billing context from user
+    const userRow = await queryOne<{ name: string; company: string | null; role: string; bank_id: number | null; email: string }>(
+      `SELECT name, company, role, bank_id, email FROM users WHERE id = ?`, [user.id]
+    );
+    const bankRow = userRow?.bank_id
+      ? await queryOne<{ name: string }>(`SELECT name FROM banks WHERE id = ?`, [userRow.bank_id])
+      : null;
+    const corpReg = await queryOne<{ company_address: string | null; company_trn: string | null }>(
+      `SELECT company_address, company_trn FROM registrations
+       WHERE (company = ? OR email = ?) AND (company_address IS NOT NULL OR company_trn IS NOT NULL)
+       ORDER BY created_at DESC LIMIT 1`,
+      [userRow?.company || '', userRow?.email || '']
+    );
+
+    const billedTo = user.role === 'bank' ? (bankRow?.name || userRow?.company || userRow?.name || user.name)
+                   : (userRow?.company || userRow?.name || user.name);
+    const billedAddress = corpReg?.company_address || null;
+    const billedTrn = corpReg?.company_trn || null;
+
+    const invoiceNumber = await generateInvoiceNumber();
+    const now = new Date().toISOString();
+
+    const invoiceId = await insert(
+      `INSERT INTO invoices (invoice_number, user_id, workshop_id, participant_id, amount, vat_amount, total_amount, status, sent_at)
+       VALUES (?, ?, NULL, NULL, ?, ?, ?, 'sent', NOW())`,
+      [invoiceNumber, user.id, combinedSubtotal, combinedVat, combinedTotal]
+    );
+
+    // Link invoice to all participants
+    if (allParticipantIds.length > 0) {
+      const placeholders = allParticipantIds.map(() => '?').join(',');
+      await pool.execute(`UPDATE participants SET invoice_id = ? WHERE id IN (${placeholders})`, [invoiceId, ...allParticipantIds]);
+    }
+
+    combinedInvoiceNumber = invoiceNumber;
+
+    // Build invoice data with line items
+    const firstWs = workshopInfos[0];
+    const invoiceData = buildInvoiceData({
+      invoiceNumber,
+      createdAt: now,
+      billedTo,
+      billedAddress,
+      billedTrn,
+      workshopTitle: lineItems.length === 1 ? lineItems[0].workshopTitle : 'CPD Training Program',
+      workshopFormat: lineItems.length === 1 ? lineItems[0].workshopFormat : 'Online',
+      startDate: String(firstWs.start_date),
+      endDate: String(firstWs.end_date),
+      participantCount: allParticipantIds.length,
+      unitPrice: lineItems.length === 1 ? lineItems[0].unitPrice : 0,
+      subtotal: combinedSubtotal,
+      vatAmount: combinedVat,
+      totalAmount: combinedTotal,
+      lineItems: lineItems.length > 1 ? lineItems : undefined,
+    });
+
+    const invoiceAttachment = await buildInvoicePdfAttachment(invoiceData);
+
+    void sendEmail({
+      to: userRow?.email || user.email,
+      subject: `Invoice ${invoiceNumber} — CPD Training Program (${lineItems.length} workshop${lineItems.length !== 1 ? 's' : ''})`,
+      html: invoiceEmailHtml({
+        invoiceNumber,
+        recipientName: billedTo,
+        participantName: billedTo,
+        workshopTitle: lineItems.length === 1 ? lineItems[0].workshopTitle : `${lineItems.length} Workshops — CPD Training Program`,
+        amount: combinedSubtotal,
+        vatAmount: combinedVat,
+        totalAmount: combinedTotal,
+      }),
+      templateType: 'invoice',
+      attachments: [invoiceAttachment],
+    }).catch(console.error);
+  }
+
+  // ── Step 4: Build result per workshop ─────────────────────────────────────
+  const workshopResults: WorkshopRegistrationResult[] = [];
+  let createdAt = new Date().toISOString();
+
+  for (const g of enrolledGroups) {
+    const unitPrice = isFreeRole ? 0 : Number(g.workshop.price);
+    const subtotal = calculateEnrollmentSubtotal(unitPrice, g.existingCount, g.participantIds.length, user.role);
+    const vat = Math.round(subtotal * 0.05 * 100) / 100;
+    const total = Math.round((subtotal + vat) * 100) / 100;
+
+    const rows = g.participantIds.length > 0 ? await query<{
+      id: number; full_name: string; email: string; phone: string | null;
+      person_id: string | null; job_position: string | null; created_at: string;
+      invoice_number: string | null; invoice_status: string | null; total_amount: number | null;
+    }>(
+      `SELECT p.id, p.full_name, p.email, p.phone, p.person_id, p.job_position, p.created_at,
+              i.invoice_number, i.status AS invoice_status, i.total_amount
+       FROM participants p LEFT JOIN invoices i ON i.id = p.invoice_id
+       WHERE p.id IN (${g.participantIds.map(() => '?').join(',')}) ORDER BY p.full_name ASC`,
+      g.participantIds
+    ) : [];
+
+    if (rows[0]) createdAt = rows[0].created_at;
+
+    workshopResults.push({
+      message: `${g.participantIds.length} participant(s) registered for "${g.workshop.title}"`,
+      workshop_id: g.workshop.id,
+      workshop_title: g.workshop.title,
+      payment_method: input.payment_method,
+      participant_count: g.participantIds.length,
+      unit_price: unitPrice,
+      subtotal,
+      vat,
+      total,
+      participant_ids: g.participantIds,
+      failed: g.failed,
+      order_id: combinedOrderId,
+      order_status: doInvoice && combinedSubtotal > 0 ? 'pending' : 'confirmed',
+      created_at: createdAt,
+      workshop: {
+        start_date: String(g.workshop.start_date),
+        end_date: String(g.workshop.end_date),
+        time_slot: g.workshop.time_slot,
+        format: g.workshop.format,
+        cpd_hours: g.workshop.cpd_hours,
+      },
+      participants: rows.map(r => ({
+        id: r.id,
+        full_name: r.full_name,
+        email: r.email,
+        phone: r.phone,
+        person_id: r.person_id,
+        job_position: r.job_position,
+        invoice_number: r.invoice_number,
+        invoice_status: r.invoice_status,
+        total_amount: r.total_amount != null ? Number(r.total_amount) : null,
+      })),
+    });
+  }
+
+  return {
+    combined_invoice_number: combinedInvoiceNumber,
+    combined_order_id: combinedOrderId,
+    combined_total: combinedTotal,
+    workshops: workshopResults,
   };
 }

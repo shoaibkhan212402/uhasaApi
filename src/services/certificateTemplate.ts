@@ -123,17 +123,58 @@ export const CERTIFICATE_GREEN = '#2E4D31';
 export const CERTIFICATE_BLACK = '#1a1a1a';
 export const CERTIFICATE_BG = '#F9FAF7';
 export const CERTIFICATE_BUBBLE = '#D8E8DC';
-// cx values 6–22 keep circles in a narrow left-edge column (~7.6% of width)
+// cx values 6–22 keep circles in a narrow left-edge column (~7.6% of width), transition to bottom
 function bubbleDecoration(): string {
   const circles = [
-    [12, 18, 28], [8, 42, 18], [18, 68, 36], [6, 95, 14], [22, 120, 42],
-    [10, 148, 22], [16, 175, 32], [8, 205, 16], [20, 230, 38], [12, 260, 24],
-    [6, 285, 12], [18, 310, 30], [10, 340, 20], [14, 365, 26], [8, 395, 14],
-    [22, 420, 40], [10, 450, 18], [16, 475, 34], [8, 505, 12], [20, 530, 28],
-    [12, 560, 22], [8, 585, 16],
+    { x: 10, y: 15, r: 8 },
+    { x: 22, y: 40, r: 4 },
+    { x: 48, y: 18, r: 7 },
+    { x: 14, y: 70, r: 12 },
+    { x: 35, y: 85, r: 6 },
+    { x: 8,  y: 110, r: 9 },
+    { x: 25, y: 130, r: 15 },
+    { x: 50, y: 115, r: 5 },
+    { x: 12, y: 160, r: 11 },
+    { x: 42, y: 175, r: 7 },
+    { x: 20, y: 200, r: 13 },
+    { x: 34, y: 225, r: 5 },
+    { x: 10, y: 250, r: 9 },
+    { x: 55, y: 240, r: 6 },
+    { x: 28, y: 275, r: 14 },
+    { x: 15, y: 310, r: 10 },
+    { x: 45, y: 320, r: 4 },
+    { x: 8,  y: 350, r: 7 },
+    { x: 26, y: 370, r: 16 },
+    { x: 52, y: 385, r: 6 },
+    { x: 18, y: 410, r: 12 },
+    { x: 38, y: 430, r: 5 },
+    { x: 12, y: 460, r: 8 },
+    { x: 58, y: 465, r: 7 },
+    { x: 28, y: 490, r: 13 },
+    { x: 50, y: 520, r: 10 },
+    { x: 75, y: 505, r: 6 },
+    { x: 90, y: 535, r: 14 },
+    { x: 115, y: 520, r: 5 },
+    { x: 130, y: 550, r: 11 },
+    { x: 155, y: 535, r: 7 },
+    { x: 180, y: 565, r: 15 },
+    { x: 210, y: 550, r: 8 },
+    { x: 240, y: 575, r: 12 },
+    { x: 275, y: 560, r: 6 },
+    { x: 310, y: 580, r: 9 },
+    { x: 350, y: 570, r: 14 },
+    { x: 390, y: 585, r: 5 },
+    { x: 430, y: 575, r: 11 },
+    { x: 480, y: 590, r: 7 },
+    { x: 530, y: 580, r: 13 },
+    { x: 580, y: 595, r: 6 },
+    { x: 640, y: 585, r: 10 },
+    { x: 700, y: 590, r: 5 },
+    { x: 760, y: 580, r: 8 },
+    { x: 820, y: 595, r: 12 }
   ];
   return circles
-    .map(([cx, cy, r]) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${CERTIFICATE_BUBBLE}" opacity="0.55"/>`)
+    .map(({x, y, r}) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${CERTIFICATE_BUBBLE}" opacity="0.55"/>`)
     .join('');
 }
 
@@ -206,51 +247,54 @@ export function certificateHtml(data: CertificateData): string {
     justify-content: flex-end;
   }
   .logo-block img {
-    height: clamp(28px, 5.5cqw, 62px);
+    height: 55px;
     width: auto;
     max-width: 100%;
     object-fit: contain;
     flex-shrink: 0;
   }
   .logo-block img.cma {
-    height: clamp(32px, 6cqw, 68px);
+    height: 62px;
   }
   .body {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     text-align: center;
-    padding: 0.5cqw 4.3cqw 2cqw 8.5cqw;
+    padding: 0 4.3cqw 2cqw 8.5cqw;
+    padding-top: 4.8cqw;
     position: relative;
     z-index: 1;
   }
   .cert-title {
-    font-family: Georgia, 'Times New Roman', Times, serif;
-    font-size: clamp(26px, 4.2cqw, 42px);
+    font-family: Georgia, serif;
     font-style: italic;
     font-weight: 400;
-    color: ${CERTIFICATE_GREEN};
-    margin-bottom: 1.6cqw;
-    letter-spacing: 0.01em;
-    line-height: 1.15;
+    color: #35532f;
+    font-size: clamp(24px, 4.2cqw, 48px);
+    line-height: 1;
+    margin-top: 0;
+    margin-bottom: 2.25cqw;
   }
   .intro {
     font-family: Georgia, 'Times New Roman', Times, serif;
     font-size: clamp(11px, 1.25cqw, 14px);
     font-weight: 400;
     color: ${CERTIFICATE_BLACK};
-    margin-bottom: 1.4cqw;
+    margin: 0;
+    margin-bottom: 4.25cqw;
     line-height: 1.45;
   }
   .recipient {
     font-family: Georgia, 'Times New Roman', Times, serif;
-    font-size: clamp(16px, 2.35cqw, 28px);
+    font-size: clamp(16px, 2.5cqw, 28px);
     font-weight: 700;
     color: ${CERTIFICATE_BLACK};
-    letter-spacing: 0.05em;
-    margin-bottom: 1.5cqw;
+    letter-spacing: 1px;
+    margin: 0;
+    margin-bottom: 4.75cqw;
     line-height: 1.25;
     max-width: 92%;
   }
@@ -260,33 +304,39 @@ export function certificateHtml(data: CertificateData): string {
     font-weight: 400;
     color: ${CERTIFICATE_BLACK};
     line-height: 1.55;
+    margin: 0;
     margin-bottom: 0.35cqw;
+  }
+  .detail.last {
+    margin-bottom: 2.5cqw;
   }
   .course-title {
     font-family: Georgia, 'Times New Roman', Times, serif;
-    font-size: clamp(14px, 2cqw, 22px);
+    font-size: clamp(14px, 1.87cqw, 21px);
+    line-height: 1.6;
     font-weight: 700;
     color: ${CERTIFICATE_BLACK};
-    margin: 1.1cqw 0 1.1cqw;
-    line-height: 1.35;
-    max-width: 88%;
+    max-width: 650px;
+    margin: 0;
+    margin-bottom: 3.3cqw;
   }
   .dates {
     font-family: Georgia, 'Times New Roman', Times, serif;
-    font-size: clamp(12px, 1.35cqw, 15px);
+    font-size: clamp(12px, 1.42cqw, 16px);
     font-weight: 700;
     color: ${CERTIFICATE_BLACK};
-    margin-bottom: 0.9cqw;
+    margin: 0;
+    margin-bottom: 1.65cqw;
     line-height: 1.4;
   }
   .note {
     font-family: Georgia, 'Times New Roman', Times, serif;
-    font-size: clamp(10px, 1.05cqw, 12px);
+    font-size: clamp(10px, 0.98cqw, 11px);
     font-weight: 400;
     color: ${CERTIFICATE_BLACK};
-    margin-top: 0.2cqw;
     max-width: 82%;
-    line-height: 1.45;
+    margin: 0;
+    line-height: 1.4;
   }
   .ref {
     position: absolute;
@@ -324,7 +374,7 @@ export function certificateHtml(data: CertificateData): string {
     <p class="recipient">${name}</p>
     <p class="detail">Has attended the online training program organized in cooperation with</p>
     <p class="detail">The Union of Arab Securities Authorities</p>
-    <p class="detail">on:</p>
+    <p class="detail last">on:</p>
     <p class="course-title">&ldquo;${title}&rdquo;</p>
     <p class="dates">${dates}</p>
     ${note ? `<p class="note">${note}</p>` : ''}

@@ -101,31 +101,85 @@ router.get('/:id/pdf', async (req, res) => {
         ? row.bank_name || row.user_company || row.user_name
         : row.user_company || row.user_name;
 
-    const { buildInvoiceData } = await import('../../services/invoiceService.js');
+    const { buildInvoiceData, formatWorkshopDateRange } = await import('../../services/invoiceTemplate.js');
     const { invoiceDataToPdf } = await import('../../services/invoicePdfService.js');
+    const isCombined = !row.workshop_title; // combined invoice has no single workshop
 
-    const countRow = await queryOne<{ count: number }>(
-      `SELECT COUNT(*) as count FROM participants WHERE invoice_id = ? AND status != 'cancelled'`,
-      [id]
-    );
-    const participantCount = countRow?.count || 1;
+    let invoiceData;
 
-    const invoiceData = buildInvoiceData({
-      invoiceNumber: row.invoice_number,
-      createdAt: String(row.created_at),
-      billedTo,
-      billedAddress: null,
-      billedTrn: null,
-      workshopTitle: row.workshop_title || 'CPD Training Program',
-      workshopFormat: row.workshop_format || 'Online',
-      startDate: row.workshop_start_date ? String(row.workshop_start_date) : String(row.created_at),
-      endDate: row.workshop_end_date ? String(row.workshop_end_date) : String(row.created_at),
-      participantCount,
-      unitPrice: Number(row.amount) / participantCount,
-      subtotal: Number(row.amount),
-      vatAmount: Number(row.vat_amount),
-      totalAmount: Number(row.total_amount),
-    });
+    if (isCombined) {
+      // Fetch per-workshop line items from participants linked to this invoice
+      const lineItemRows = await query<{
+        workshop_id: number;
+        workshop_title: string;
+        workshop_format: string;
+        start_date: string;
+        end_date: string;
+        price: number;
+        cnt: number;
+      }>(
+        `SELECT p.workshop_id, w.title AS workshop_title, w.format AS workshop_format,
+                w.start_date, w.end_date, w.price, COUNT(*) AS cnt
+         FROM participants p
+         JOIN workshops w ON w.id = p.workshop_id
+         WHERE p.invoice_id = ? AND p.status != 'cancelled' AND p.workshop_id IS NOT NULL
+         GROUP BY p.workshop_id, w.title, w.format, w.start_date, w.end_date, w.price
+         ORDER BY w.start_date ASC`,
+        [id]
+      );
+
+      const lineItems = lineItemRows.map((li) => ({
+        workshopTitle: li.workshop_title,
+        workshopFormat: li.workshop_format || 'Online',
+        workshopDates: formatWorkshopDateRange(String(li.start_date), String(li.end_date)),
+        participantCount: Number(li.cnt),
+        unitPrice: Number(li.price),
+        amount: Number(li.price) * Number(li.cnt),
+      }));
+
+      const firstWs = lineItemRows[0];
+      invoiceData = buildInvoiceData({
+        invoiceNumber: row.invoice_number,
+        createdAt: String(row.created_at),
+        billedTo,
+        billedAddress: null,
+        billedTrn: null,
+        workshopTitle: lineItems.length === 1 ? lineItems[0].workshopTitle : 'CPD Training Program',
+        workshopFormat: lineItems.length === 1 ? lineItems[0].workshopFormat : 'Online',
+        startDate: firstWs ? String(firstWs.start_date) : String(row.created_at),
+        endDate: firstWs ? String(firstWs.end_date) : String(row.created_at),
+        participantCount: lineItems.reduce((s, li) => s + li.participantCount, 0),
+        unitPrice: lineItems.length === 1 ? lineItems[0].unitPrice : 0,
+        subtotal: Number(row.amount),
+        vatAmount: Number(row.vat_amount),
+        totalAmount: Number(row.total_amount),
+        lineItems: lineItems.length > 1 ? lineItems : undefined,
+      });
+    } else {
+      const countRow = await queryOne<{ count: number }>(
+        `SELECT COUNT(*) as count FROM participants WHERE invoice_id = ? AND status != 'cancelled'`,
+        [id]
+      );
+      const participantCount = countRow?.count || 1;
+
+      invoiceData = buildInvoiceData({
+        invoiceNumber: row.invoice_number,
+        createdAt: String(row.created_at),
+        billedTo,
+        billedAddress: null,
+        billedTrn: null,
+        workshopTitle: row.workshop_title || 'CPD Training Program',
+        workshopFormat: row.workshop_format || 'Online',
+        startDate: row.workshop_start_date ? String(row.workshop_start_date) : String(row.created_at),
+        endDate: row.workshop_end_date ? String(row.workshop_end_date) : String(row.created_at),
+        participantCount,
+        unitPrice: Number(row.amount) / participantCount,
+        subtotal: Number(row.amount),
+        vatAmount: Number(row.vat_amount),
+        totalAmount: Number(row.total_amount),
+      });
+    }
+
 
     const pdf = await invoiceDataToPdf(invoiceData);
     res.setHeader('Content-Type', 'application/pdf');
