@@ -12,6 +12,9 @@ export interface AuthUser {
   must_change_password?: boolean;
   company?: string | null;
   bank_id?: number | null;
+  phone?: string | null;
+  company_address?: string | null;
+  company_trn?: string | null;
 }
 
 declare global {
@@ -97,6 +100,9 @@ export function signToken(user: AuthUser): string {
       must_change_password: user.must_change_password || false,
       company: user.company || null,
       bank_id: user.bank_id || null,
+      phone: user.phone || null,
+      company_address: user.company_address || null,
+      company_trn: user.company_trn || null,
     },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn } as jwt.SignOptions
